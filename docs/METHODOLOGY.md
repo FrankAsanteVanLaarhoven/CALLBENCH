@@ -28,9 +28,21 @@ authoritative; model-based judgement explicitly demoted to advisory.
 **C4 — Deterministic repair protocol.** Bounded retries over immutable
 execution traces, with a prohibition list that a repair may not cross.
 
-**C5 — Reproducible evaluation methodology.** Paired designs, exact McNemar
+**C5 — Behavioural Replay Verification.** A formal equivalence relation for
+simulator implementations, quantified as Behavioural Stability (§17).
+
+**C6 — Reproducible evaluation methodology.** Paired designs, exact McNemar
 tests, Wilson intervals, seeded bootstraps, a hierarchical taxonomy, mutation
-based generalisation testing, and per-run component fingerprints.
+based generalisation testing, a backend conformance contract, and per-run
+component fingerprints.
+
+The work is organised around four questions:
+
+1. Can autonomous tool-using agents be evaluated deterministically?
+2. How can unsafe or fabricated tool use be detected automatically?
+3. Which architectural components contribute most to safe execution?
+4. Can benchmark results be reproduced across implementations and model
+   backends?
 
 The central question: can an autonomous agent transform a natural-language
 instruction into the correct, minimal, auditable and safe sequence of
@@ -264,6 +276,10 @@ email-function tasks.
 | Agent pipeline | ≥90% schema-valid calls on development cases; zero fabricated identifiers | **met under the reference planner**; unverified against a model backend |
 | Dataset | ≥1,000 cases; inter-annotator agreement >0.85 on tool-chain labels; every destructive case has a safety or clarification oracle | **partially met** — 2,000 committed cases and every destructive case has a clarification oracle; **inter-annotator agreement is unmeasured**, because no human annotation pass has been run |
 | Benchmark and release | Reproducible command; machine-readable results; HTML report; public methodology; hidden partition held out | **met** for the harness; the release gate above is **not** met and no SOTA claim is made |
+| Attribution | Results attributable to architecture rather than planner | **met** — factorial decomposition reports an architecture share of 66.8% with a positive interaction |
+| Robustness | Generalisation measured across mutation categories | **met** — 14 operators over four categories |
+| Behavioural reproducibility | BS = 100% across refactors, baseline committed | **met** |
+| Cross-model evaluation | Multiple real backends under identical conditions | **not met** — the single largest gap; the conformance contract exists to make closing it bounded work |
 
 
 ---
@@ -379,3 +395,104 @@ change that silently alters one does.
 The domain-specific surface is the simulator, the catalogue and the generators.
 Everything else is domain-independent by construction, which is what makes v2 a
 matter of adding a package rather than rewriting the harness.
+
+
+---
+
+## 17. Behavioural Replay Verification
+
+**Definition.** Two simulator implementations are *behaviourally equivalent*
+if, over the canonical fixture suite and the canonical operation script, they
+produce identical observable state transitions — the same before/after state
+hashes and the same changed-resource sets at every step — regardless of any
+difference in their implementation.
+
+**Behavioural Stability.**
+
+```
+BS = identical observable transitions / total replay fixtures
+```
+
+Target: **BS = 100% across implementation refactors.**
+
+The canonical script exercises every side-effect class the simulator declares
+(read, create, mutate, send, destructive) across eight fixtures spanning all
+three generators. A transition that is never exercised is a transition the
+check cannot protect, so coverage of the side-effect enum is asserted in the
+test suite rather than assumed.
+
+The baseline is **committed**. Re-recording it is a deliberate act with a
+reviewable diff, which is what makes a behavioural change a failing check
+rather than a silent renumbering of prior results.
+
+### This check found a real defect
+
+Building it exposed a hole in the state model: `store.labels` was reachable by
+`modify_labels` but absent from `snapshot()`, so creating a label changed the
+mailbox in a way neither the state hash nor `changed_resources` recorded — and
+therefore in a way no verifier downstream could see. The state model now covers
+every mutable surface, and a regression test asserts it.
+
+That is the argument for behavioural over source hashing in one example: source
+hashing would have called the fix a new benchmark and said nothing about the
+defect.
+
+---
+
+## 18. Attribution: architecture versus planner
+
+A near-ceiling result invites the objection that the ceiling belongs to the
+planner. `callbench decompose` crosses the two axes on identical tasks.
+
+The **architecture axis** is chosen so each step adds exactly one capability:
+`structured_outputs` (planner only) → `multi_agent_no_hooks` (adds the contract
+analyst) → `callbench_full` (adds the deterministic gate and bounded repair).
+`single_agent_planner` is excluded because, with the gate off, it differs from
+`multi_agent_no_hooks` only in repair budget and repairs never fire — including
+it would put two identical columns in the grid.
+
+The **planner axis** is the three reference profiles. For model backends the
+model *is* the planner axis, and the grid runs one row per model.
+
+Reported quantities: planner main effect, architecture main effect, and the
+**interaction** — the architecture's benefit for the weakest planner minus its
+benefit for the strongest. A positive interaction is the claim a safety
+architecture ought to be making, and it is not visible from any single cell.
+
+---
+
+## 19. Backend conformance
+
+Cross-model comparison is only meaningful if every adapter is faithful. A
+backend that silently drops exclusions, invents tool names, or "repairs" a
+rejected send by re-aiming it would make its model look worse — or more
+reckless — than it is.
+
+`callbench conform --model <id>` runs a contract of required checks: the
+analysis is well-typed, an exclusion survives into it, planned tools are all in
+the supplied catalogue, no identifier is fabricated in a first plan, a repair
+does not re-aim a recipient set, the judge returns a well-typed answer, and
+usage accounting is populated.
+
+Deliberately **not** checked: determinism (models are stochastic, and
+determinism here comes from fixtures and oracles, not from pinning a decoder)
+and quality (a backend can conform perfectly and plan badly — that is what the
+benchmark is for).
+
+---
+
+## 20. Threats to external validity
+
+- **Deterministic planners are easier to analyse than stochastic agents.**
+  Every ablation delta and mutation retention here is measured against a
+  rule-based planner with no sampling variance, no context-length sensitivity
+  and no instruction-following drift.
+- **Real providers introduce latency, permissions, pagination, partial
+  failures and malformed inputs** that the simulator does not model.
+- **Benchmark performance is not production reliability.** Nothing here
+  licenses a deployment decision.
+- **The task distribution is the generator's.** Prompts are templated over a
+  fixed contact and topic pool.
+- **Oracles are machine-derived and unaudited.** Computing rather than
+  asserting them removes one class of error, not the other: a systematic
+  generator mistake becomes 2,500 systematic oracle mistakes.

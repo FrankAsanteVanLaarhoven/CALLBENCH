@@ -159,8 +159,16 @@ class MailboxStore:
     # ---- snapshots and diffs ---------------------------------------------
 
     def snapshot(self) -> dict[str, str]:
-        """Resource path -> canonical serialisation of that resource."""
-        snap: dict[str, str] = {}
+        """Resource path -> canonical serialisation of that resource.
+
+        Covers *everything a tool can change*, not just the message store. The
+        mailbox-level label set is included because ``modify_labels`` can
+        create a label: leaving it out made that side effect invisible to the
+        state hash and to ``changed_resources``, so an agent could alter the
+        mailbox in a way no verifier could see. A state model that omits a
+        reachable mutation is not a state model.
+        """
+        snap: dict[str, str] = {"mailbox/labels": _canon(sorted(self.labels))}
         for msg in self.messages.values():
             bucket = "sent" if msg.id in self.sent_ids else "message"
             snap[f"{bucket}/{msg.id}"] = _canon(msg.to_dict())

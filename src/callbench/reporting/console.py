@@ -137,21 +137,81 @@ def interval_table(console: Console, report: RunReport) -> None:
         header_style="cb.label", border_style="cb.rule",
     )
     table.add_column("SYSTEM", style="cb.value", no_wrap=True)
-    table.add_column("PASS RATE  95% CI", justify="left")
-    table.add_column("UNSAFE RATE  95% CI", justify="left")
-    table.add_column("COMPOSITE  95% CI", justify="left")
+    table.add_column("PASS RATE", justify="right")
+    table.add_column("±", justify="left")
+    table.add_column("UNSAFE RATE", justify="right")
+    table.add_column("±", justify="left")
+    table.add_column("COMPOSITE", justify="right")
+    table.add_column("±", justify="left")
 
     for metrics in report.systems:
         table.add_row(
             metrics.system,
-            _interval(metrics.rates.get("overall_pass_rate")),
-            _interval(metrics.rates.get("unsafe_action_rate")),
-            _interval(metrics.composite, scale=1.0, decimals=1),
+            *_point_and_margin(metrics.rates.get("overall_pass_rate")),
+            *_point_and_margin(metrics.rates.get("unsafe_action_rate")),
+            *_point_and_margin(metrics.composite, scale=1.0, unit=""),
         )
 
     console.print()
     console.print(Text(label("confidence intervals"), style="cb.label"))
     console.print(table)
+    console.print(
+        Text(
+            "  ± is the wider half-width of the 95% interval — Wilson for rates, "
+            "seeded percentile bootstrap for the composite. Full bounds in results.json.",
+            style="cb.dim",
+        )
+    )
+
+
+def dimensions_table(console: Console, report: RunReport) -> None:
+    """The comparison view: one row per evaluation dimension."""
+    if not report.dimensions:
+        return
+    table = Table(
+        box=HAIRLINE, show_edge=False, pad_edge=False,
+        header_style="cb.label", border_style="cb.rule",
+    )
+    table.add_column("DIMENSION", style="cb.value", no_wrap=True)
+    table.add_column("METRIC", style="cb.dim", no_wrap=True)
+    for metrics in report.systems:
+        table.add_column(_abbrev(metrics.system), justify="right")
+
+    for row in report.dimensions:
+        cells: list[Any] = [row["dimension"], row["metric"]]
+        if row["scope"] == "run":
+            value = row.get("value")
+            text = (
+                Text(f"{value:.1f}{row['unit']}", style="cb.accent")
+                if value is not None
+                else Text("not measured", style="cb.dim")
+            )
+            cells.extend([text] + [Text("", style="cb.dim")] * (len(report.systems) - 1))
+        else:
+            by_system = row.get("by_system", {})
+            for metrics in report.systems:
+                value = by_system.get(metrics.system)
+                if value is None:
+                    cells.append(Text("·", style="cb.dim"))
+                    continue
+                if row["unit"] == "%":
+                    style = rate_style(value / 100, higher_is_better=row["higher_is_better"])
+                    cells.append(Text(f"{value:6.1f}%", style=style))
+                else:
+                    cells.append(Text(f"{value:6.2f}{row['unit']}", style="cb.muted"))
+        table.add_row(*cells)
+
+    console.print()
+    console.print(Text(label("evaluation dimensions"), style="cb.label"))
+    console.print(table)
+    console.print(
+        Text(
+            "  reliability and reproducibility are run-level: they are properties of the "
+            "simulator and of the tree, not of an individual system. A dimension that was "
+            "not measured says so rather than defaulting to zero.",
+            style="cb.dim",
+        )
+    )
 
 
 def taxonomy_table(console: Console, report: RunReport) -> None:
@@ -409,12 +469,86 @@ def mutation_table(console: Console, report: Any) -> None:
     console.print(table)
     console.print()
     console.print(
-        Text(f"  TOOL GENERALISATION SCORE  {report.score:5.1f}", style="cb.accent")
+        Text(
+            f"  TOOL GENERALISATION (retention)  {report.score:5.1f}"
+            f"      ROBUSTNESS (absolute)  {report.absolute_score:5.1f}",
+            style="cb.accent",
+        )
     )
     console.print(
         Text(
-            "  averaged over semantics-preserving mutations only: a drop there cannot be "
-            "excused by the task having become harder, because it has not.",
+            "  both averaged over semantics-preserving mutations only: a drop there cannot "
+            "be excused by the task having become harder, because it has not.",
+            style="cb.dim",
+        )
+    )
+    console.print(
+        Text(
+            "  retention is relative to this system's own baseline and is a diagnostic — a "
+            "system that barely consults the catalogue has little to lose and posts high "
+            "retention. Compare systems on the absolute figure.",
+            style="cb.dim",
+        )
+    )
+
+
+def decomposition_table(console: Console, decomposition: Any) -> None:
+    """Render the planner x architecture grid and its attribution."""
+    planners = decomposition.planners()
+    architectures = decomposition.architectures()
+
+    table = Table(
+        box=HAIRLINE, show_edge=False, pad_edge=False,
+        header_style="cb.label", border_style="cb.rule",
+    )
+    table.add_column("PLANNER", style="cb.value", no_wrap=True)
+    for architecture in architectures:
+        table.add_column(architecture[:20].upper(), justify="right")
+    table.add_column("PLANNER EFFECT", justify="right", style="cb.muted")
+
+    effects = decomposition.planner_effect()
+    for planner in planners:
+        row: list[Any] = [planner]
+        for architecture in architectures:
+            cell = decomposition.cell(planner, architecture)
+            row.append(
+                Text(f"{getattr(cell, decomposition.metric) * 100:6.1f}%",
+                     style=rate_style(getattr(cell, decomposition.metric)))
+                if cell else Text("·", style="cb.dim")
+            )
+        row.append(f"{effects[planner] * 100:6.1f}%")
+        table.add_row(*row)
+
+    arch_effects = decomposition.architecture_effect()
+    table.add_row(
+        Text("ARCHITECTURE EFFECT", style="cb.label"),
+        *[Text(f"{arch_effects[a] * 100:6.1f}%", style="cb.muted") for a in architectures],
+        Text("", style="cb.dim"),
+    )
+
+    console.print()
+    console.print(
+        Text(label(f"decomposition  ({decomposition.metric.replace('_', ' ')})"), style="cb.label")
+    )
+    console.print(table)
+
+    attribution = decomposition.attribution()
+    share = attribution["architecture_share"]
+    console.print()
+    console.print(
+        Text(
+            f"  architecture span {attribution['architecture_span'] * 100:5.1f} pts   "
+            f"planner span {attribution['planner_span'] * 100:5.1f} pts   "
+            f"architecture share {share * 100:5.1f}%" if share is not None else "  no variation",
+            style="cb.accent",
+        )
+    )
+    console.print(
+        Text(
+            f"  interaction {attribution['interaction'] * 100:+5.1f} pts — the architecture's "
+            "benefit for the weakest planner minus its benefit for the strongest. Positive "
+            "means it matters most where the planner is worst, which is the regime that "
+            "decides deployability.",
             style="cb.dim",
         )
     )
@@ -497,6 +631,7 @@ def render_report(console: Console, report: RunReport) -> None:
     banner(console, report)
     results_table(console, report)
     interval_table(console, report)
+    dimensions_table(console, report)
     partition_table(console, report)
     tier_table(console, report)
     operations_table(console, report)
@@ -517,6 +652,24 @@ def _pct(interval: Interval | None, *, higher_is_better: bool = True) -> Text:
     return Text(
         f"{interval.point * 100:6.1f}%",
         style=rate_style(interval.point, higher_is_better=higher_is_better),
+    )
+
+
+def _point_and_margin(
+    interval: Interval | None, *, scale: float = 100.0, unit: str = "%"
+) -> tuple[Text, Text]:
+    """Point estimate and the wider half-width of its interval.
+
+    Wilson intervals are asymmetric near 0 and 1, so a single ± is reported as
+    the *wider* side. Quoting the narrower one would understate the uncertainty
+    exactly where rates are extreme, which is where these rates live.
+    """
+    if interval is None:
+        return (Text("·", style="cb.dim"), Text("", style="cb.dim"))
+    margin = max(interval.point - interval.low, interval.high - interval.point) * scale
+    return (
+        Text(f"{interval.point * scale:6.1f}{unit}", style="cb.value"),
+        Text(f"± {margin:.2f}", style="cb.dim"),
     )
 
 

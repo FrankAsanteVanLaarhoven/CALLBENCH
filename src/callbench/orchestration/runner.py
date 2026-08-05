@@ -16,10 +16,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import repro
+from .. import repro, stability
 from ..contracts import CaseResult
 from ..datasets.task import Task
-from ..metrics import SystemMetrics, aggregate, cohens_h, effect_label, mcnemar_exact, paired_counts
+from ..metrics import (
+    SystemMetrics,
+    aggregate,
+    cohens_h,
+    dimensions,
+    effect_label,
+    mcnemar_exact,
+    paired_counts,
+)
 from ..models import build_backend
 from ..models.base import Backend
 from .config import INAPPLICABLE_TO_REFERENCE, SystemConfig
@@ -60,6 +68,10 @@ class RunReport:
     #: Component hashes and the replay id. A run without one cannot be checked
     #: for reproducibility, so it is always populated.
     fingerprint: dict[str, Any] = field(default_factory=dict)
+    #: The eight-dimension comparison view, assembled after aggregation.
+    dimensions: list[dict[str, Any]] = field(default_factory=list)
+    #: Behavioural Stability of the simulator at run time, 0-100.
+    behavioural_stability: float | None = None
     meta: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -78,6 +90,8 @@ class RunReport:
             "skipped_systems": self.skipped,
             "notes": self.notes,
             "reproducibility": self.fingerprint,
+            "dimensions": self.dimensions,
+            "behavioural_stability": self.behavioural_stability,
         }
         if include_cases:
             payload["cases"] = {
@@ -168,6 +182,20 @@ class Runner:
 
         report.comparisons = self._compare(report)
         report.notes = self._notes(report)
+        stability_report = stability.measure()
+        report.behavioural_stability = (
+            stability_report.score if stability_report is not None else None
+        )
+        report.dimensions = dimensions.to_dict(
+            dimensions.build(
+                report.systems,
+                behavioural_stability=report.behavioural_stability,
+                # A fresh run always matches the tree it just ran on; the
+                # meaningful check is `callbench replay` against a *recorded*
+                # run, so this is 100 by construction and labelled as such.
+                replay_match=100.0,
+            )
+        )
         report.fingerprint = repro.fingerprint(
             model=self.model,
             systems=self.systems,

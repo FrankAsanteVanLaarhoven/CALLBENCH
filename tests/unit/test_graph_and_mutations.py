@@ -108,11 +108,54 @@ def test_every_consumed_value_has_provenance_under_the_full_system(suite) -> Non
 
 @pytest.mark.parametrize("mutation", mutations.MUTATIONS, ids=lambda m: m.name)
 def test_every_mutation_produces_a_usable_catalogue(mutation) -> None:  # type: ignore[no-untyped-def]
+    """Structure operators change the tool count on purpose; every tool must
+    still resolve to a real simulator handler."""
     mutant = mutations.build_mutant(mutation)
-    assert len(mutant) == 16
+    assert 14 <= len(mutant) <= 18
+    canonical_names = {t.name for t in mutations.CANONICAL_TOOLS}
     for spec in mutant:
-        assert mutant.canonical(spec.name) in {t.name for t in mutations.CANONICAL_TOOLS}
+        assert mutant.canonical(spec.name) in canonical_names
         assert spec.input_schema["additionalProperties"] is False
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [m for m in mutations.MUTATIONS if m.category is not mutations.Category.STRUCTURE],
+    ids=lambda m: m.name,
+)
+def test_non_structural_mutations_preserve_the_tool_count(mutation) -> None:  # type: ignore[no-untyped-def]
+    expected = 16 - len(mutations.build_mutant(mutation).plan.shadowed)
+    assert len(mutations.build_mutant(mutation)) == expected
+
+
+def test_merging_routes_on_the_mode_argument() -> None:
+    """A merged tool is two operations behind one name.
+
+    Routing must follow the declared discriminator, and an unrecognised mode
+    must not fall through to the benign branch — guessing there would hide the
+    failure the merge exists to probe.
+    """
+    mutant = mutations.build_mutant(mutations.BY_NAME["tool_merge"])
+    assert mutant.canonical_call("dispose_message", {"message_id": "m", "mode": "archive"}) == (
+        "archive_message", {"message_id": "m"}
+    )
+    assert mutant.canonical_call("dispose_message", {"message_id": "m", "mode": "trash"}) == (
+        "delete_message", {"message_id": "m"}
+    )
+    unresolved, _ = mutant.canonical_call("dispose_message", {"message_id": "m"})
+    assert unresolved.endswith("unresolved_mode")
+
+
+def test_splitting_keeps_both_halves_backed_by_one_handler() -> None:
+    mutant = mutations.build_mutant(mutations.BY_NAME["tool_split"])
+    assert "search_by_sender" in mutant and "search_by_text" in mutant
+    assert mutant.canonical("search_by_sender") == "search_messages"
+    assert mutant.canonical("search_by_text") == "search_messages"
+
+
+def test_mutations_cover_every_category() -> None:
+    covered = {m.category for m in mutations.MUTATIONS}
+    assert covered == set(mutations.Category)
 
 
 def test_renaming_tools_preserves_every_schema() -> None:

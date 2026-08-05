@@ -2,8 +2,9 @@ PY ?= ./.venv/bin/python
 CALLBENCH ?= ./.venv/bin/callbench
 SIZE ?= 2500
 SEED ?= 20260805
+MODEL ?= reference
 
-.PHONY: help install check lint types test dataset bench bench-all mutate replay doctor report clean
+.PHONY: help install check lint types test dataset bench bench-all mutate decompose stability conform replay doctor report clean
 
 help:
 	@echo "install    create .venv and install the package with dev extras"
@@ -12,6 +13,9 @@ help:
 	@echo "bench      run the baselines against the reference planner"
 	@echo "bench-all  run the baselines and every ablation"
 	@echo "mutate     mutation testing: measure tool generalisation"
+	@echo "decompose  attribute results to the architecture or the planner"
+	@echo "stability  behavioural replay verification of the simulator"
+	@echo "conform    check a backend against the adapter contract (MODEL=...)"
 	@echo "replay     check the last run against the current tree"
 	@echo "doctor     verify the harness invariants"
 	@echo "clean      remove reports and caches"
@@ -21,7 +25,7 @@ install:
 	$(PY) -m pip install --upgrade pip
 	$(PY) -m pip install -e ".[dev]"
 
-check: lint types test
+check: lint types test stability
 
 lint:
 	$(PY) -m ruff check src tests mcp_server
@@ -45,6 +49,15 @@ bench-all:
 
 mutate:
 	$(CALLBENCH) mutate --limit 250
+
+decompose:
+	$(CALLBENCH) decompose --limit 250
+
+stability:
+	$(CALLBENCH) stability
+
+conform:
+	$(CALLBENCH) conform --model $(MODEL)
 
 replay:
 	$(CALLBENCH) replay

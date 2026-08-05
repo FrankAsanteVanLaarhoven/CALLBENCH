@@ -58,6 +58,13 @@ def main(argv: list[str] | None = None) -> int:
     bench.add_argument("--price-input", type=float, default=None, help="USD per 1M input tokens")
     bench.add_argument("--price-output", type=float, default=None, help="USD per 1M output tokens")
     bench.add_argument(
+        "--with-mutation",
+        type=int,
+        default=0,
+        metavar="N",
+        help="also run mutation testing on N sampled cases to fill the robustness dimension",
+    )
+    bench.add_argument(
         "--graphs",
         type=int,
         default=0,
@@ -88,6 +95,32 @@ def main(argv: list[str] | None = None) -> int:
     mutate.add_argument("--root", type=Path, default=DEFAULT_DATASET)
     mutate.add_argument("--out", type=Path, default=DEFAULT_REPORTS)
 
+    decompose = sub.add_parser(
+        "decompose", help="attribute results to the planner or to the architecture"
+    )
+    decompose.add_argument("--model", default="reference")
+    decompose.add_argument("--partitions", nargs="*", default=["public", "adversarial"])
+    decompose.add_argument("--limit", type=int, default=200, help="cases per split")
+    decompose.add_argument("--root", type=Path, default=DEFAULT_DATASET)
+    decompose.add_argument("--out", type=Path, default=DEFAULT_REPORTS)
+    decompose.add_argument(
+        "--metric", default="pass_rate", choices=["pass_rate", "unsafe_rate", "fabrication_rate"]
+    )
+
+    conform = sub.add_parser(
+        "conform", help="check that a model backend satisfies the adapter contract"
+    )
+    conform.add_argument("--model", default="reference")
+    conform.add_argument("--effort", default="high")
+
+    stability = sub.add_parser(
+        "stability", help="behavioural replay verification of the simulator"
+    )
+    stability.add_argument(
+        "--record", action="store_true", help="rewrite the committed baseline"
+    )
+    stability.add_argument("--baseline", type=Path, default=None)
+
     replay = sub.add_parser("replay", help="check a recorded run against the current tree")
     replay.add_argument("replay_id", nargs="?", default=None)
     replay.add_argument("--results", type=Path, default=DEFAULT_REPORTS / "results.json")
@@ -108,6 +141,12 @@ def main(argv: list[str] | None = None) -> int:
         return _inspect(console, args)
     if args.command == "mutate":
         return _mutate(console, args)
+    if args.command == "decompose":
+        return _decompose(console, args)
+    if args.command == "conform":
+        return _conform(console, args)
+    if args.command == "stability":
+        return _stability(console, args)
     if args.command == "replay":
         return _replay(console, args)
     if args.command == "tools":
@@ -172,6 +211,34 @@ def _bench(console, args) -> int:  # type: ignore[no-untyped-def]
             price_output=args.price_output,
         )
         report = runner.run(tasks, args.partitions)
+
+    if args.with_mutation:
+        from . import mutations
+        from .metrics import dimensions as dimensions_module
+
+        sample = tasks[: args.with_mutation]
+        scores: dict[str, float] = {}
+        for system in systems:
+            if system.name not in report.results:
+                continue
+            # Bind the loop variable explicitly: a closure over `system` would
+            # capture the last iteration and score every row against it.
+            def factory(config=system):  # type: ignore[no-untyped-def]
+                return runner._backend_for(config)
+
+            # Absolute, not retention: see metrics.dimensions.build.
+            scores[system.name] = mutations.run(sample, factory, system).absolute_score
+        report.dimensions = dimensions_module.to_dict(
+            dimensions_module.build(
+                report.systems,
+                behavioural_stability=report.behavioural_stability,
+                replay_match=100.0,
+                generalisation=scores,
+            )
+        )
+        console.print(
+            f"  [cb.dim]robustness measured over {len(sample)} sampled cases per system[/]"
+        )
 
     ui.render_report(console, report)
 
@@ -298,6 +365,144 @@ def _mutate(console, args) -> int:  # type: ignore[no-untyped-def]
     console.print(f"  [cb.dim]{path}[/]")
     console.print()
     return 0
+
+
+def _decompose(console, args) -> int:  # type: ignore[no-untyped-def]
+    from . import decompose as decompose_module
+
+    tasks = _load_tasks(args.root, args.partitions, args.limit)
+    if not tasks:
+        console.print(f"[cb.bad]no tasks found under {args.root}[/]")
+        return 1
+
+    if not args.model.startswith("reference"):
+        console.print(
+            "[cb.bad]the planner axis for a model backend is the model itself[/] "
+            "[cb.dim]run one --model per row and compare the reports; a single model "
+            "cannot populate a planner-competence axis[/]"
+        )
+        return 1
+
+    console.print()
+    console.print(f"[cb.header]{label('decomposition')}[/] [cb.dim]{len(tasks)} cases per cell[/]")
+
+    def on_progress(planner: str, architecture: str) -> None:
+        console.print(f"  [cb.dim]{planner:<10} x {architecture}[/]")
+
+    result = decompose_module.run(
+        tasks,
+        decompose_module.reference_factory,
+        metric=args.metric,
+        progress=on_progress,
+    )
+    ui.decomposition_table(console, result)
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    path = args.out / "decomposition.json"
+    path.write_text(json.dumps(result.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
+    console.print(f"  [cb.dim]{path}[/]")
+    console.print()
+    return 0
+
+
+def _conform(console, args) -> int:  # type: ignore[no-untyped-def]
+    from . import conformance
+    from .models import build_backend
+
+    console.print()
+    console.print(f"[cb.header]{label('backend conformance')}[/] [cb.dim]{args.model}[/]")
+    console.print("[cb.rule]" + "─" * 78 + "[/]")
+
+    try:
+        report = conformance.check(lambda: build_backend(args.model, effort=args.effort))
+    except Exception as exc:  # noqa: BLE001 - construction failure is a conformance failure
+        console.print(f"  [cb.bad]backend could not be constructed[/] [cb.dim]{exc}[/]")
+        return 1
+
+    for item in report.checks:
+        mark = (
+            "[cb.ok]pass[/]"
+            if item.passed
+            else ("[cb.bad]fail[/]" if item.required else "[cb.warn]note[/]")
+        )
+        console.print(f"  {mark}  [cb.value]{item.name:<50}[/][cb.dim]{item.detail}[/]")
+
+    console.print()
+    if report.conformant:
+        console.print(
+            "  [cb.ok]▪[/] [cb.muted]this backend satisfies the adapter contract; its "
+            "numbers are comparable with other conformant backends[/]"
+        )
+    else:
+        console.print(
+            "  [cb.bad]▪[/] [cb.muted]required checks failed. A cross-model comparison "
+            "using this adapter would measure the adapter, not the model[/]"
+        )
+    console.print()
+    return 0 if report.conformant else 2
+
+
+def _stability(console, args) -> int:  # type: ignore[no-untyped-def]
+    """Behavioural Replay Verification: does the simulator still behave the same?"""
+    from . import stability as stability_module
+
+    path = args.baseline or stability_module.DEFAULT_BASELINE
+
+    console.print()
+    console.print(f"[cb.header]{label('behavioural stability')}[/]")
+    console.print(
+        "[cb.dim]  equivalence: identical observable state transitions over the "
+        "canonical fixture suite and script[/]"
+    )
+
+    if args.record:
+        signatures = stability_module.write_baseline(path)
+        console.print()
+        console.print(
+            f"  [cb.warn]▪[/] [cb.muted]baseline rewritten with {len(signatures)} "
+            f"signatures -> {path}[/]"
+        )
+        console.print(
+            "  [cb.dim]review the diff: a changed signature means the simulator's "
+            "observable behaviour changed, which invalidates prior results[/]"
+        )
+        console.print()
+        return 0
+
+    report = stability_module.measure(path)
+    if report is None:
+        console.print(
+            f"  [cb.bad]no baseline at {path}[/] "
+            "[cb.dim]record one with `callbench stability --record`[/]"
+        )
+        return 1
+
+    style = "cb.ok" if report.stable else "cb.bad"
+    console.print()
+    console.print(
+        f"  [{style}]BS = {report.score:.1f}%[/]  "
+        f"[cb.dim]{report.matched}/{report.total} fixtures behaviourally identical[/]"
+    )
+    for fixture in report.drifted:
+        console.print(f"    [cb.bad]drift[/]    [cb.value]{fixture}[/]")
+    for fixture in report.missing:
+        console.print(f"    [cb.warn]new[/]      [cb.value]{fixture}[/] [cb.dim]not in baseline[/]")
+    for fixture in report.added:
+        console.print(f"    [cb.warn]absent[/]   [cb.value]{fixture}[/] [cb.dim]baseline only[/]")
+
+    console.print()
+    if report.stable:
+        console.print(
+            "  [cb.dim]the simulator is behaviourally equivalent to the recorded "
+            "implementation; prior results remain comparable[/]"
+        )
+    else:
+        console.print(
+            "  [cb.dim]observable behaviour changed. Prior numbers describe a different "
+            "simulator — re-record deliberately, and re-run anything you intend to cite[/]"
+        )
+    console.print()
+    return 0 if report.stable else 2
 
 
 def _replay(console, args) -> int:  # type: ignore[no-untyped-def]

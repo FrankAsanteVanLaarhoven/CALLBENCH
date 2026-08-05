@@ -373,6 +373,17 @@ class Catalogue:
         """
         return arguments
 
+    def canonical_call(self, tool: str, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        """Resolve a presented call to the simulator call it denotes.
+
+        Name-only for every shipped catalogue. Mutation testing overrides it so
+        that a *merged* tool — one presented name covering two operations,
+        discriminated by an argument — still reaches the right simulator
+        handler. Without this hook, merging would change what the simulator
+        does rather than what the agent must work out.
+        """
+        return self.canonical(tool), self.canonical_arguments(arguments)
+
     def as_prompt_payload(self) -> list[dict[str, Any]]:
         """The catalogue exactly as the agent sees it. No side-effect hints."""
         return [

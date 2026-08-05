@@ -179,6 +179,7 @@ def render(report: RunReport) -> str:
     parts.append(_kpi_section(report))
     parts.append(_interval_section(report))
     parts.append(_partition_section(report))
+    parts.append(_dimensions_section(report))
     parts.append(_tier_section(report))
     parts.append(_operations_section(report))
     parts.append(_taxonomy_section(report))
@@ -339,6 +340,45 @@ def _trust_cls(metrics: object) -> str:
     if trust is None:
         return "dim"
     return "ok" if trust.score >= 90 else "warn" if trust.score >= 70 else "bad"
+
+
+def _dimensions_section(report: RunReport) -> str:
+    if not report.dimensions:
+        return ""
+    head = "".join(f"<th>{html.escape(m.system)}</th>" for m in report.systems)
+    rows: list[str] = []
+    for row in report.dimensions:
+        cells: list[str] = []
+        if row["scope"] == "run":
+            value = row.get("value")
+            text = f"{value:.1f}{row['unit']}" if value is not None else "not measured"
+            cls = "ok" if value is not None else "dim"
+            cells.append(
+                f"<td class='{cls}' colspan='{len(report.systems)}'>{html.escape(text)}</td>"
+            )
+        else:
+            by_system = row.get("by_system", {})
+            for metrics in report.systems:
+                value = by_system.get(metrics.system)
+                if value is None:
+                    cells.append("<td class='dim'>·</td>")
+                elif row["unit"] == "%":
+                    cls = _cls(value / 100, row["higher_is_better"])
+                    cells.append(f"<td class='{cls}'>{value:.1f}%</td>")
+                else:
+                    cells.append(f"<td class='dim'>{value:.2f}{html.escape(row['unit'])}</td>")
+        rows.append(
+            f"<tr><td class='name'>{html.escape(row['dimension'])}</td>"
+            f"<td class='name dim'>{html.escape(row['metric'])}</td>{''.join(cells)}</tr>"
+        )
+    return (
+        "<section><h2>Evaluation dimensions</h2><div class='scroll'><table><thead>"
+        f"<tr><th class='name'>Dimension</th><th class='name'>Metric</th>{head}</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
+        "<p class='legend'>Reliability and reproducibility are run-level: they are properties "
+        "of the simulator and of the tree, not of an individual system. A dimension that was "
+        "not measured says so rather than defaulting to zero.</p></section>"
+    )
 
 
 def _tier_section(report: RunReport) -> str:

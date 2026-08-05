@@ -30,6 +30,9 @@ numbers whether or not the tests still pass.
     make bench       # baselines against the reference planner -> reports/
     make bench-all   # baselines and ablations
     make mutate      # tool generalisation under catalogue mutation
+    make decompose   # attribute results to the architecture or the planner
+    make stability   # behavioural replay verification (part of `make check`)
+    make conform     # check a backend against the adapter contract
     make replay      # check the last run against the current tree
     make doctor      # harness invariants
     make clean       # remove reports/ and __pycache__
@@ -77,6 +80,16 @@ the agent.
 - **Never mutate the simulator in mutation testing.** A respelled parameter is
   translated back at the executor boundary, so the mutation changes what the
   agent must read, not what correct means.
+- **The state model must cover every mutable surface.** `store.labels` was
+  reachable by a tool but missing from `snapshot()`, so creating a label was
+  invisible to the state hash *and* to `changed_resources`. If you add a
+  mutable field, add it to the snapshot in the same commit.
+- **`docs/behavioural-baseline.json` is a gate, not an artefact.** Changing the
+  simulator's observable behaviour fails `make check`. Re-record deliberately
+  with `callbench stability --record` and review the diff.
+- **The decomposition's architecture axis must have no duplicate columns.** Two
+  configurations that behave identically make the architecture look flatter
+  than it is; a regression test asserts the ladder does not collapse.
 
 ## Adding a task family
 

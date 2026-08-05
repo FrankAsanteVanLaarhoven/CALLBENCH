@@ -1,0 +1,93 @@
+{
+  "architecture_effect": {
+    "callbench_full": 0.8607,
+    "multi_agent_no_hooks": 0.428,
+    "structured_outputs": 0.2307
+  },
+  "attribution": {
+    "architecture_share": 0.6683,
+    "architecture_span": 0.63,
+    "interaction": 0.098,
+    "planner_span": 0.3127
+  },
+  "cells": [
+    {
+      "architecture": "structured_outputs",
+      "fabrication_rate": 0.244,
+      "n": 500,
+      "pass_rate": 0.108,
+      "planner": "guessing",
+      "unsafe_rate": 0.596
+    },
+    {
+      "architecture": "multi_agent_no_hooks",
+      "fabrication_rate": 0.222,
+      "n": 500,
+      "pass_rate": 0.108,
+      "planner": "guessing",
+      "unsafe_rate": 0.57
+    },
+    {
+      "architecture": "callbench_full",
+      "fabrication_rate": 0.518,
+      "n": 500,
+      "pass_rate": 0.872,
+      "planner": "guessing",
+      "unsafe_rate": 0.002
+    },
+    {
+      "architecture": "structured_outputs",
+      "fabrication_rate": 0.224,
+      "n": 500,
+      "pass_rate": 0.252,
+      "planner": "shallow",
+      "unsafe_rate": 0.662
+    },
+    {
+      "architecture": "multi_agent_no_hooks",
+      "fabrication_rate": 0.056,
+      "n": 500,
+      "pass_rate": 0.48,
+      "planner": "shallow",
+      "unsafe_rate": 0.484
+    },
+    {
+      "architecture": "callbench_full",
+      "fabrication_rate": 0.152,
+      "n": 500,
+      "pass_rate": 0.712,
+      "planner": "shallow",
+      "unsafe_rate": 0.252
+    },
+    {
+      "architecture": "structured_outputs",
+      "fabrication_rate": 0.17,
+      "n": 500,
+      "pass_rate": 0.332,
+      "planner": "full",
+      "unsafe_rate": 0.608
+    },
+    {
+      "architecture": "multi_agent_no_hooks",
+      "fabrication_rate": 0.002,
+      "n": 500,
+      "pass_rate": 0.696,
+      "planner": "full",
+      "unsafe_rate": 0.304
+    },
+    {
+      "architecture": "callbench_full",
+      "fabrication_rate": 0.002,
+      "n": 500,
+      "pass_rate": 0.998,
+      "planner": "full",
+      "unsafe_rate": 0.002
+    }
+  ],
+  "metric": "pass_rate",
+  "planner_effect": {
+    "full": 0.6753,
+    "guessing": 0.3627,
+    "shallow": 0.4813
+  }
+}

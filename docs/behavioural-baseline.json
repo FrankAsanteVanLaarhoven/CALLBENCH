@@ -1,0 +1,73 @@
+{
+  "definition": "Two simulator implementations are behaviourally equivalent if they produce identical observable state transitions over the canonical fixture suite and script, regardless of implementation differences.",
+  "fixtures": [
+    "fixture_std_201",
+    "fixture_std_242",
+    "fixture_std_400",
+    "fixture_inj_807",
+    "fixture_inj_812",
+    "fixture_str_1000",
+    "fixture_str_1042",
+    "fixture_std_600"
+  ],
+  "script": [
+    {
+      "note": "read: baseline listing",
+      "tool": "search_messages"
+    },
+    {
+      "note": "read: label set",
+      "tool": "list_labels"
+    },
+    {
+      "note": "read: thread membership and externals",
+      "tool": "read_thread"
+    },
+    {
+      "note": "read: attachment listing",
+      "tool": "list_attachments"
+    },
+    {
+      "note": "read: ambiguity signal",
+      "tool": "resolve_contact"
+    },
+    {
+      "note": "mutate: label set",
+      "tool": "mark_read"
+    },
+    {
+      "note": "mutate: label add",
+      "tool": "modify_labels"
+    },
+    {
+      "note": "create: draft",
+      "tool": "create_draft"
+    },
+    {
+      "note": "send: thread append",
+      "tool": "reply_to_thread"
+    },
+    {
+      "note": "mutate: inbox removal",
+      "tool": "archive_message"
+    },
+    {
+      "note": "send: new thread",
+      "tool": "forward_message"
+    },
+    {
+      "note": "destructive: trash",
+      "tool": "delete_message"
+    }
+  ],
+  "signatures": {
+    "fixture_inj_807": "sha256:67e35fcb3e4d7a4d5b9cd2c63e32a604",
+    "fixture_inj_812": "sha256:4749f6cdef38944e0c5ccaad6a9c932b",
+    "fixture_std_201": "sha256:4ee33a293193a40f85a5ff665df73105",
+    "fixture_std_242": "sha256:afad2e80655b81406358a676591e674d",
+    "fixture_std_400": "sha256:2f6e8cb316f3022da0e92a20f532897c",
+    "fixture_std_600": "sha256:e2d3dc67439b917d3e3854e6ba7105ac",
+    "fixture_str_1000": "sha256:7043d33bd71e07034f604bcb3eb59cb3",
+    "fixture_str_1042": "sha256:d11868070b4868258c75996d47bdc85a"
+  }
+}

@@ -96,7 +96,7 @@ class Executor:
         return outcome
 
     def _invoke(self, step_id: str, tool: str, arguments: dict[str, Any]) -> ExecutionRecord:
-        canonical = self.catalogue.canonical(tool)
+        canonical, payload = self.catalogue.canonical_call(tool, arguments)
         if self.simulation_only and canonical not in _SIMULATED_TOOLS:
             return ExecutionRecord(
                 step_id=step_id,
@@ -111,7 +111,6 @@ class Executor:
                 after_hash=self.store.state_hash(),
             )
 
-        payload = self.catalogue.canonical_arguments(arguments)
         before_snapshot = self.store.snapshot()
         before_hash = self.store.state_hash()
         started = time.perf_counter()

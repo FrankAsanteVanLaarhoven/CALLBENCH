@@ -111,3 +111,56 @@ def test_reproducibility_fingerprint_is_stable_and_sensitive() -> None:
     other = repro.fingerprint(model="claude-opus-5", systems=systems, partitions=["public"])
     assert other.replay_id != first.replay_id
     assert "planner" in first.diff(other)
+
+
+@pytest.mark.regression
+def test_behavioural_stability_against_the_committed_baseline() -> None:
+    """Behavioural Replay Verification, as a check rather than a claim.
+
+    The baseline is committed, so a change to the simulator's *observable*
+    behaviour fails here rather than silently renumbering everyone's prior
+    results. A pure refactor leaves this green.
+    """
+    from callbench import stability
+
+    report = stability.measure()
+    assert report is not None, "the baseline must be committed"
+    assert report.stable, f"behavioural drift in {report.drifted}"
+    assert report.score == 100.0
+
+
+@pytest.mark.regression
+def test_behavioural_stability_detects_a_real_change() -> None:
+    """A check that cannot fail is not a check."""
+    import callbench.simulator.tools as tools_module
+    from callbench import stability
+
+    baseline = stability.record()
+    original = tools_module.HANDLERS["archive_message"]
+
+    def altered(store, args, now):  # type: ignore[no-untyped-def]
+        result = original(store, args, now)
+        store.labels.add("DRIFT_PROBE")
+        return result
+
+    tools_module.HANDLERS["archive_message"] = altered
+    try:
+        drifted = stability.compare(baseline, stability.record())
+    finally:
+        tools_module.HANDLERS["archive_message"] = original
+
+    assert not drifted.stable
+    assert drifted.score == 0.0
+
+
+@pytest.mark.regression
+def test_the_state_model_covers_every_mutable_surface() -> None:
+    """A reachable mutation that no snapshot records is invisible to every
+    verifier downstream."""
+    from callbench.simulator import build_fixture
+
+    store = build_fixture("fixture_std_201")
+    paths = set(store.snapshot())
+    assert any(p.startswith("mailbox/labels") for p in paths)
+    assert any(p.startswith("message/") for p in paths)
+    assert any(p.startswith("thread/") for p in paths)
