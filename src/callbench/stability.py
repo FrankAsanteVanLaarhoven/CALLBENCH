@@ -6,11 +6,11 @@ produce identical observable state transitions — the same before/after state
 hashes and the same changed-resource sets at every step — regardless of any
 difference in their implementation.
 
-**Behavioural Stability (BS)** quantifies it::
+The **Behavioural Stability Index (BSI)** quantifies it::
 
-    BS = identical observable transitions / total replay fixtures
+    BSI = identical observable transitions / total replay fixtures
 
-with a target of **BS = 100% across implementation refactors**.
+with a target of **BSI = 100 across implementation refactors**.
 
 Why this and not source hashing
 ===============================
@@ -18,7 +18,7 @@ Why this and not source hashing
 Hashing source declares every refactor a new benchmark, so nobody ever claims
 reproducibility and the check becomes decorative. Hashing *behaviour* asserts
 the property that actually matters: a rename, a re-factoring of the store, a
-faster diff algorithm — all leave BS at 100%. A "harmless" change that silently
+faster diff algorithm — all leave BSI at 100. A "harmless" change that silently
 alters one mailbox does not, and the failing fixture names itself.
 
 The baseline is committed. That makes a behavioural change a **failing check**
@@ -117,6 +117,8 @@ class FixtureSignature:
 
 @dataclass
 class StabilityReport:
+    """Behavioural Stability Index and the fixtures that moved."""
+
     matched: int
     total: int
     drifted: list[str] = field(default_factory=list)

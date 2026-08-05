@@ -1,0 +1,22 @@
+{
+  "components": {
+    "dataset": "cd54a1566da56b61",
+    "planner": "62f3d6861fa84b45",
+    "schemas": "7d93eb89768a5cde",
+    "simulator": "f04be798a70284ad",
+    "systems": "114039b6c30ac612",
+    "taxonomy": "5520078cf59ab65f",
+    "verifier": "7726a0aa5285bfcc"
+  },
+  "counts": {
+    "mutation_operators": 14,
+    "oracle_predicates": 9,
+    "splits": 5,
+    "taxonomy_codes": 21,
+    "tiers": 5,
+    "tools": 16
+  },
+  "definition": "The frozen specification is a manifest of component hashes, not a version string. 'We are still running v1.0' is therefore checkable: anything that moves a hash moves the specification.",
+  "frozen": "",
+  "version": "1.0"
+}

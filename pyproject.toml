@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "callbench"
 version = "0.1.0"
-description = "A verification-centric benchmark for autonomous function-calling agents"
+description = "Verification-centric benchmark and evaluation framework for autonomous tool-using AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-authors = [{ name = "Frank Asante Van Laarhoven", email = "frankleroyvan@gmail.com" }]
+authors = [{ name = "Frank Van Laarhoven", email = "frankleroyvan@gmail.com" }]
 keywords = [
     "benchmark", "function-calling", "agents", "evaluation", "tool-use",
     "verification", "provenance", "mcp",

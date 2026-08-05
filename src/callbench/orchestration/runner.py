@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import repro, stability
+from .. import certification, repro, stability
 from ..contracts import CaseResult
 from ..datasets.task import Task
 from ..metrics import (
@@ -70,8 +70,12 @@ class RunReport:
     fingerprint: dict[str, Any] = field(default_factory=dict)
     #: The eight-dimension comparison view, assembled after aggregation.
     dimensions: list[dict[str, Any]] = field(default_factory=list)
-    #: Behavioural Stability of the simulator at run time, 0-100.
+    #: Behavioural Stability Index of the simulator at run time, 0-100.
     behavioural_stability: float | None = None
+    #: Whether this backend holds a current certificate. A run by an
+    #: uncertified backend is still produced — suppressing it would hide
+    #: information — but it is marked inadmissible for comparison.
+    admissibility: dict[str, Any] = field(default_factory=dict)
     meta: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -92,6 +96,7 @@ class RunReport:
             "reproducibility": self.fingerprint,
             "dimensions": self.dimensions,
             "behavioural_stability": self.behavioural_stability,
+            "admissibility": self.admissibility,
         }
         if include_cases:
             payload["cases"] = {
@@ -196,14 +201,19 @@ class Runner:
                 replay_match=100.0,
             )
         )
-        report.fingerprint = repro.fingerprint(
+        fingerprint = repro.fingerprint(
             model=self.model,
             systems=self.systems,
             partitions=partitions,
             dataset_root=self.dataset_root,
             seed=self.seed,
             effort=self.effort,
-        ).to_dict()
+        )
+        report.fingerprint = fingerprint.to_dict()
+        report.admissibility = certification.admissibility(
+            [s.name for s in self.systems],
+            certification.status_for(self.model, fingerprint.components),
+        )
         return report
 
     @staticmethod

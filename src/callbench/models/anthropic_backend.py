@@ -112,10 +112,16 @@ class AnthropicBackend:
                 "`pip install 'callbench[anthropic]'`, or run the benchmark "
                 "offline with `--model reference`."
             ) from exc
-        if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-            # A profile from `ant auth login` also authenticates; only warn by
-            # failing at call time, not here.
-            pass
+        key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if key and not key.startswith("sk-ant-"):
+            # A placeholder key is worse than no key: it *shadows* every other
+            # credential source, so `ant auth login` silently has no effect and
+            # the run dies with a 401 thousands of cases in. Fail here.
+            raise BackendUnavailable(
+                f"ANTHROPIC_API_KEY is set to {key[:12]!r}, which is not an Anthropic "
+                "key. It will shadow any profile from `ant auth login`. Unset it "
+                "(`unset ANTHROPIC_API_KEY`) and authenticate, or export a real key."
+            )
         return anthropic.Anthropic()
 
     # ---- roles ------------------------------------------------------------

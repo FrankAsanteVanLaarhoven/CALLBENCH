@@ -1,0 +1,29 @@
+name: Authorship Policy
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  authorship-policy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check repository content
+        run: python scripts/check_authorship_policy.py --tree . --skip-identity
+
+      # Earlier history predates this policy and is deliberately preserved on a
+      # public repository. AUTHORSHIP_SINCE pins the cutoff so the policy is
+      # enforced from that commit forward without rewriting published hashes.
+      - name: Check Git history
+        env:
+          AUTHORSHIP_SINCE: ${{ vars.AUTHORSHIP_SINCE }}
+        run: bash scripts/check_git_history.sh

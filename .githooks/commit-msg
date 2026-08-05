@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+python3 scripts/check_authorship_policy.py \
+  --commit-message-file "$1"

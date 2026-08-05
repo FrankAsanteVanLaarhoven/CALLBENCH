@@ -1,7 +1,20 @@
 # CallBench
 
-**A verification-centric benchmark for autonomous function-calling agents.**
-Email is the first domain.
+**CallBench** is a verification-centric benchmark and evaluation framework for
+autonomous AI agents that use external tools.
+
+Unlike function-calling benchmarks that measure only tool selection, CallBench
+evaluates the complete execution lifecycle: planning, dependency resolution,
+provenance tracking, deterministic policy enforcement, execution correctness,
+state-transition verification, behavioural replay verification, and
+reproducibility.
+
+**Email is the first reference domain implemented within the framework**, not
+the identity of it.
+
+> CallBench evaluates whether an agent performs the correct action safely,
+> verifiably and reproducibly — not merely whether it predicts the correct
+> function name.
 
 Most tool-use benchmarks evaluate a single arrow:
 
@@ -10,12 +23,39 @@ prompt ──▶ tool call ──▶ correct?
 ```
 
 CallBench evaluates the pipeline that actually decides whether an autonomous
-agent is safe to deploy:
+agent is safe to deploy. This one figure is most of the method:
 
 ```
-prompt ──▶ analysis ──▶ plan ──▶ safety gate ──▶ execution
-                                                    │
-       ledger ◀── verification ◀── state transition ┘
+                     Natural language request
+                                │
+                                ▼
+                         Task contract          policy, catalogue, current_time
+                                │
+                                ▼
+                          Contract analyst      intent · entities · ambiguity · risk
+                                │
+                                ▼
+                           Tool planner         minimum ordered chain, references not values
+                                │
+                                ▼
+                          Policy gate  ◀────────  provenance ledger
+                                │                 (information-flow policy)
+                    approve ────┴──── veto
+                                │
+                                ▼
+                            Execution           simulator only, never a provider
+                                │
+                                ▼
+                            State diff          before/after hash · changed resources
+                                │
+                                ▼
+                    Behavioural replay          is this the same simulator?
+                                │
+                                ▼
+                             Oracle             schema · execution · state · semantics
+                                │
+                                ▼
+                             Metrics            7 KPIs · 8 dimensions · taxonomy
 ```
 
 Every stage is a node with its own oracle, so a failure has a *location* — not
@@ -48,12 +88,14 @@ agents.** 12,500 stratified tasks over a content-addressed mailbox simulator.
 Every oracle is *computed* from the fixture the generator built, never
 asserted, never authored by a model, never derived from an agent's output.
 
-**2 — A provenance-aware execution model that prevents fabricated
-identifiers.** Plan steps carry deferred references (`$s1.results[0].thread_id`)
-resolved only after the producing step returns. A ledger records every value
-the agent is entitled to use, and emits a value-level lineage graph. There is
-no syntax for "the id I think it will be", so fabrication is *structurally*
-detectable rather than statistically unlikely.
+**2 — A runtime information-flow policy for agent execution.** The ledger
+enforces *provenance-preserving data flow* between user inputs, tool outputs
+and subsequent executions: a governed value may enter a payload only if it can
+be traced to the request or to a prior tool result. Plan steps carry deferred
+references (`$s1.results[0].thread_id`) resolved only after the producing step
+returns, so there is no syntax for "the id I think it will be". Fabrication
+stops being a statistical property of a model and becomes a structural property
+of the execution model — and the lineage graph makes each flow inspectable.
 
 **3 — A four-layer verification framework.** Schema correctness, execution
 correctness, state-transition correctness, semantic correctness — each
@@ -67,15 +109,25 @@ nothing; once state has moved, the trace is final. A repair may never re-aim a
 recipient set, widen a deletion, or swap an attachment — if that is the only
 way to satisfy the violations, the answer is `refuse`.
 
-**5 — Behavioural Replay Verification.** A formal equivalence relation for
-simulator implementations: *two implementations are behaviourally equivalent if
-they produce identical observable state transitions over the canonical fixture
-suite and script, regardless of implementation differences.* Quantified as
-**Behavioural Stability**, `BS = identical transitions / total replay fixtures`,
-with the baseline committed so a behavioural change is a failing check rather
-than a silent renumbering of everyone's prior results.
+**5 — Behavioural Replay Verification.** A formal equivalence relation over
+observable behaviour rather than source:
 
-**6 — A reproducible evaluation methodology.** Paired designs with exact
+> Simulator implementations `S_a` and `S_b` are equivalent iff, for every
+> fixture `f ∈ F` under the canonical script, `Δ_a(f) = Δ_b(f)` — identical
+> state transitions at every step.
+
+Quantified as the **Behavioural Stability Index**,
+`BSI = identical transitions / total replay fixtures`, with the baseline
+committed so a behavioural change is a failing check rather than a silent
+renumbering of everyone's prior results. The relation is domain-independent:
+nothing in it is about email.
+
+**6 — Backend certification.** Every backend must satisfy a behavioural
+contract *before its results become admissible*. Conformance asks whether an
+adapter is faithful; certification asks whether its numbers may appear in a
+comparison at all. Excluded backends are listed rather than omitted.
+
+**7 — A reproducible evaluation methodology.** Paired designs with exact
 McNemar tests, Wilson intervals, seeded bootstraps, a hierarchical failure
 taxonomy, mutation-based generalisation testing, a backend conformance
 contract, and per-run component fingerprints that make "I cannot reproduce
@@ -229,15 +281,14 @@ A benchmark with a fixed catalogue measures how well a system has fitted *that*
 catalogue. `callbench mutate` perturbs the tool surface along one axis at a
 time, leaving task, fixture and oracle untouched:
 
-| Operator | Preserves meaning | A failure reveals |
+| Class | Operators | A failure reveals |
 |---|---|---|
-| `rename_tools` | yes | names were memorised, not read |
-| `rename_parameters` | yes | field spellings were memorised |
-| `reorder_properties` | yes | schema order was load-bearing |
-| `strip_descriptions` | no | descriptions carried the whole signal |
-| `adversarial_descriptions` | no | descriptions are followed uncritically |
-| `require_optional_field` | no | required-set changes are ignored |
-| `remove_optional_field` | no | withdrawn fields are still emitted |
+| **Lexical** | `rename_tools`, `synonym_substitution`, `rename_parameters`, `duplicate_tool_names` | surface names were memorised rather than read |
+| **Structural** | `tool_split`, `tool_merge` | the agent cannot cope with a re-shaped tool surface |
+| **Semantic** | `paraphrase_descriptions`, `strip_descriptions` | meaning was carried by exact wording, not content |
+| **Schema** | `reorder_properties`, `require_optional_field`, `remove_optional_field` | the declared contract was ignored for a remembered one |
+| **Type** | `change_parameter_type` | field types were assumed rather than checked |
+| **Adversarial** | `adversarial_descriptions`, `conflicting_descriptions` | prose in the catalogue was trusted over structure |
 
 The **Tool Generalisation score** averages retention over the
 semantics-preserving operators only. Averaging in the others would conflate
@@ -370,6 +421,40 @@ what makes v2 a matter of adding a package rather than rewriting the harness.
 
 ---
 
+## The framework, and its domains
+
+```
+CallBench
+├── Core framework          domain-independent by construction
+│   ├── planner and roles       analyst · planner · guardian · executor · verifier
+│   ├── policy engine           deterministic gate over schema, scope, privacy
+│   ├── provenance              runtime information-flow policy + lineage graph
+│   ├── verification            four authoritative layers + 21-code taxonomy
+│   ├── replay                  behavioural equivalence + BSI
+│   └── evaluation              7 KPIs · 8 dimensions · paired statistics
+│
+├── Domains                 implement callbench.domain.BenchmarkDomain
+│   └── email                   v1.0 — the reference domain
+│       (calendar, github, filesystem, sql, cloud, kubernetes, slack, robotics)
+│
+└── Backends                must pass conform + certify to be comparable
+    ├── claude-*                structured outputs
+    ├── claude-*+tooluse        native tool use, independently implemented
+        (gpt, gemini, open models — the contract makes these bounded work)
+```
+
+A domain supplies exactly four things: a simulator, its tool catalogues, task
+generation with computed oracles, and its own state predicates, mutation
+operators and replay script. Everything else consumes only that interface —
+and a throwaway non-email domain is driven through the same machinery in the
+test suite, so "domain independent" is a passing test rather than a claim.
+
+The package keeps a flat layout rather than a `framework/` + `domains/` tree.
+That migration is deliberately deferred: moving every module immediately after
+freezing v1.0's specification hashes would invalidate the freeze and the
+artifact for no functional gain. The interface is what makes the move
+mechanical when a second real domain arrives.
+
 ## Repository
 
 ```
@@ -379,20 +464,60 @@ src/callbench/
   policies/         gate, provenance, lineage    agents/        roles + executor
   models/           reference + Claude           orchestration/ configs, pipeline, runner
   verification/     4 layers + predicates        metrics/       KPIs, trust, cost, stats
-  graph.py          execution + provenance DAG   mutations.py   catalogue mutation operators
-  repro.py          fingerprints and replay      reporting/     console, HTML, JSON
+  graph.py          execution + provenance DAG   mutations.py   14 mutation operators
+  repro.py          fingerprints and replay      stability.py   behavioural replay + BSI
+  domain.py         the BenchmarkDomain contract certification.py conformance -> eligibility
+  spec.py           the frozen v1.0 manifest     reporting/     console, HTML, JSON
 mcp_server/         MCP + JSON-lines adapter
 .claude/            subagents, commands, hooks
 datasets/           public validation adversarial stress (hidden is gitignored)
 tests/              unit contract integration adversarial regression
 ```
 
-Commands: `generate | bench | mutate | inspect | replay | tools | doctor`.
+Commands: `generate | bench | decompose | mutate | inspect | conform | certify | stability | spec | replay | tools | doctor`.
 
 A run writes `results.json` (intervals, taxonomy, comparisons, fingerprint —
 small enough to read), `cases.jsonl` (one streamable record per case),
 `report.html` (self-contained, offline) and optionally `graphs/`. A committed
 example report is at `docs/example-report.html`.
+
+---
+
+## Eligibility: conformance, then certification
+
+```
+Backend  ──▶  Conformance  ──▶  Certification  ──▶  Benchmark-eligible
+              (contract)        (dated, hashed)      (admissible)
+```
+
+A backend is comparable only when it holds a **current** certificate: it passed
+the adapter contract against a tree whose schema, taxonomy and verifier hashes
+match the run's. A certificate earned against a different tree reports `stale`
+rather than being honoured — otherwise a backend certified against an older
+schema registry would appear admissible on a benchmark it has never satisfied.
+
+```bash
+callbench conform --model <id>    # is the adapter faithful?
+callbench certify --model <id>    # may its numbers be compared?
+```
+
+Runs by uncertified backends are still produced — suppressing them would hide
+information — but every report carries a **NOT BENCHMARK-ELIGIBLE** banner, and
+the registry at `docs/certified-backends.json` lists exclusions explicitly.
+
+---
+
+## Generalisation, in three tiers
+
+| Tier | Condition | v1.0 |
+|---|---|---|
+| **GS1** | seen schema | measured |
+| **GS2** | mutated schema | measured |
+| **GS3** | previously unseen tool domain | **not measurable** |
+
+GS3 requires a second domain and v1.0 ships one. It is defined in the metric
+rather than omitted, so the gap is visible in the numbers themselves and a v2.0
+result drops into a slot that already exists.
 
 ---
 
@@ -470,6 +595,15 @@ re-aims a rejected send.
 The target that would make a release defensible: **≥97% schema validity, ≥92%
 final-state accuracy, ≤0.5% fabrication, and zero critical unsafe actions
 across 2,500 hidden tasks.** See `docs/METHODOLOGY.md`.
+
+## Publication plan
+
+The work has grown two separable contributions — a benchmark and a
+verification method that is not about email. `docs/PAPERS.md` sets out both,
+with the evidence each is blocked on: cross-model results for the first, a
+second domain for the second. Neither is blocked on engineering, which is the
+better problem to have, and neither should be submitted on the strength of the
+code alone.
 
 ## Licence
 

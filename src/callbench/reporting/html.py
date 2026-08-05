@@ -166,6 +166,18 @@ def render(report: RunReport) -> str:
         parts.append(f"<div><dt>{html.escape(key)}</dt><dd>{html.escape(value)}</dd></div>")
     parts.append("</dl>")
 
+    admissibility = report.admissibility
+    if admissibility and not admissibility.get("admissible", True):
+        parts.append(
+            "<div class='notice' style='border-color:var(--bad)'>"
+            "<b style='color:var(--bad)'>Not benchmark-eligible</b>"
+            f"<p>Backend status: <code>{html.escape(str(admissibility.get('status', '?')))}"
+            f"</code>. {html.escape(str(admissibility.get('note', '')))} These numbers are "
+            "reported but are not admissible for comparison against certified backends: a "
+            "comparison using an unverified adapter measures the adapter, not the model.</p>"
+            "</div>"
+        )
+
     if report.synthetic:
         parts.append(
             '<div class="notice"><b>Synthetic planner — not a model result</b>'

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from .cost import PRICING, PRICING_AS_OF, CostBreakdown, LatencyBreakdown, cost, latency
+from .generalisation import GeneralisationScore
+from .generalisation import build as generalisation_score
 from .kpis import PRIMARY_KPIS, SystemMetrics, aggregate, safety_failures
 from .score import PENALTIES, WEIGHTS, ScoreBreakdown, score_case
 from .stats import (
@@ -22,7 +24,9 @@ __all__ = [
     "PRICING_AS_OF",
     "CostBreakdown",
     "LatencyBreakdown",
+    "GeneralisationScore",
     "TrustScore",
+    "generalisation_score",
     "cost",
     "latency",
     "trust_score",

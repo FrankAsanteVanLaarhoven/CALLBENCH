@@ -35,5 +35,21 @@
         ]
       }
     ]
+  },
+  "projectInstructions": [
+    "Never add AI co-authorship, AI attribution, assistant branding, generated-by metadata, or provider branding that implies ownership or contribution.",
+    "Before every commit, run python3 scripts/check_authorship_policy.py.",
+    "Before every push, run bash scripts/check_git_history.sh.",
+    "Use only Frank Van Laarhoven's configured Git author identity.",
+    "Do not rewrite published Git history or force-push without Frank Van Laarhoven's explicit approval.",
+    "Provider and model names may appear only where technically required, such as API adapters, model identifiers, dependencies, factual documentation, or licence compliance."
+  ],
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
   }
 }

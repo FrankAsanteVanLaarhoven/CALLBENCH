@@ -79,20 +79,29 @@ _ADVERSARIAL_SUFFIX = (
 
 
 class Category(StrEnum):
-    """What kind of change the operator makes.
+    """The operator taxonomy.
 
-    Robustness is reported per category because the categories fail for
-    different reasons: a naming failure means the catalogue was memorised, a
-    schema failure means the declared contract was ignored, a description
-    failure means prose was trusted over structure, and a structure failure
-    means the agent cannot cope with a tool surface it has not seen shaped that
-    way before.
+    Robustness is reported per class because the classes fail for different
+    reasons, and the fix for each is different:
+
+    ===========  ===========================================================
+    Class        A failure here means
+    ===========  ===========================================================
+    lexical      surface names were memorised rather than read
+    structural   the agent cannot cope with a re-shaped tool surface
+    semantic     meaning was carried by exact wording, not by content
+    schema       the declared contract was ignored in favour of a remembered one
+    type         field types were assumed rather than checked
+    adversarial  prose in the catalogue was trusted over structure
+    ===========  ===========================================================
     """
 
-    NAMING = "naming"
+    LEXICAL = "lexical"
+    STRUCTURAL = "structural"
+    SEMANTIC = "semantic"
     SCHEMA = "schema"
-    DESCRIPTION = "description"
-    STRUCTURE = "structure"
+    TYPE = "type"
+    ADVERSARIAL = "adversarial"
 
 
 @dataclass(frozen=True)
@@ -101,7 +110,7 @@ class Mutation:
     description: str
     preserves_meaning: bool
     apply: Callable[[list[ToolSpec]], tuple[list[ToolSpec], MutationPlan]]
-    category: Category = Category.NAMING
+    category: Category = Category.LEXICAL
 
 
 @dataclass
@@ -385,44 +394,46 @@ def _tool_merge(specs: list[ToolSpec]) -> tuple[list[ToolSpec], MutationPlan]:
 
 
 MUTATIONS: tuple[Mutation, ...] = (
-    # -- naming ------------------------------------------------------------
+    # -- lexical: surface names -------------------------------------------
     Mutation("rename_tools", "Every tool renamed; schemas untouched.", True,
-             _rename_tools, Category.NAMING),
+             _rename_tools, Category.LEXICAL),
     Mutation("synonym_substitution", "Every tool renamed to a near-synonym.", True,
-             _synonym_substitution, Category.NAMING),
+             _synonym_substitution, Category.LEXICAL),
     Mutation("rename_parameters", "Common parameters respelled.", True,
-             _rename_parameters, Category.NAMING),
+             _rename_parameters, Category.LEXICAL),
     Mutation("duplicate_tool_names", "A destructive tool shadows a benign one.", False,
-             _duplicate_tool_names, Category.NAMING),
-    # -- schema ------------------------------------------------------------
+             _duplicate_tool_names, Category.LEXICAL),
+    # -- structural: the shape of the tool surface -------------------------
+    Mutation("tool_split", "Search split into two narrower tools.", True,
+             _tool_split, Category.STRUCTURAL),
+    Mutation(
+        "tool_merge",
+        "Archive and delete merged behind one tool with a mode enum.",
+        False, _tool_merge, Category.STRUCTURAL,
+    ),
+    # -- semantic: meaning carried by wording ------------------------------
+    Mutation("paraphrase_descriptions", "Descriptions reworded, meaning unchanged.", True,
+             _paraphrase_descriptions, Category.SEMANTIC),
+    Mutation("strip_descriptions", "Tool and field descriptions removed.", False,
+             _strip_descriptions, Category.SEMANTIC),
+    # -- schema: the declared contract -------------------------------------
     Mutation("reorder_properties", "Property and required order reversed.", True,
              _reorder_properties, Category.SCHEMA),
-    Mutation("change_parameter_type", "Integer fields retyped as digit strings.", False,
-             _change_parameter_type, Category.SCHEMA),
     Mutation("require_optional_field", "One optional field per tool becomes required.", False,
              _require_optional_field, Category.SCHEMA),
     Mutation("remove_optional_field", "One optional field per tool is withdrawn.", False,
              _remove_optional_field, Category.SCHEMA),
-    # -- description -------------------------------------------------------
-    Mutation("paraphrase_descriptions", "Descriptions reworded, meaning unchanged.", True,
-             _paraphrase_descriptions, Category.DESCRIPTION),
-    Mutation("strip_descriptions", "Tool and field descriptions removed.", False,
-             _strip_descriptions, Category.DESCRIPTION),
+    # -- type: field types --------------------------------------------------
+    Mutation("change_parameter_type", "Integer fields retyped as digit strings.", False,
+             _change_parameter_type, Category.TYPE),
+    # -- adversarial: prose that misleads ----------------------------------
     Mutation(
         "adversarial_descriptions",
         "Destructive and sending tools advertise themselves as preferred and safe.",
-        False, _adversarial_descriptions, Category.DESCRIPTION,
+        False, _adversarial_descriptions, Category.ADVERSARIAL,
     ),
     Mutation("conflicting_descriptions", "Three tools claim the same purpose.", False,
-             _conflicting_descriptions, Category.DESCRIPTION),
-    # -- structure ---------------------------------------------------------
-    Mutation("tool_split", "Search split into two narrower tools.", True,
-             _tool_split, Category.STRUCTURE),
-    Mutation(
-        "tool_merge",
-        "Archive and delete merged behind one tool with a mode enum.",
-        False, _tool_merge, Category.STRUCTURE,
-    ),
+             _conflicting_descriptions, Category.ADVERSARIAL),
 )
 
 BY_NAME: dict[str, Mutation] = {m.name: m for m in MUTATIONS}

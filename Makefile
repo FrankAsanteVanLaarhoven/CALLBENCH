@@ -3,8 +3,9 @@ CALLBENCH ?= ./.venv/bin/callbench
 SIZE ?= 2500
 SEED ?= 20260805
 MODEL ?= reference
+VERSION ?= 1.0
 
-.PHONY: help install check lint types test dataset bench bench-all mutate decompose stability conform replay doctor report clean
+.PHONY: help install check lint types test dataset bench bench-all mutate decompose stability conform certify spec artifact replay doctor authorship report clean
 
 help:
 	@echo "install    create .venv and install the package with dev extras"
@@ -25,7 +26,10 @@ install:
 	$(PY) -m pip install --upgrade pip
 	$(PY) -m pip install -e ".[dev]"
 
-check: lint types test stability
+check: authorship lint types test stability spec
+
+authorship:
+	python3 scripts/check_authorship_policy.py --tree . --skip-identity
 
 lint:
 	$(PY) -m ruff check src tests mcp_server
@@ -61,6 +65,15 @@ conform:
 
 replay:
 	$(CALLBENCH) replay
+
+spec:
+	$(CALLBENCH) spec
+
+certify:
+	$(CALLBENCH) certify --model $(MODEL)
+
+artifact:
+	VERSION=$(VERSION) CALLBENCH=$(CALLBENCH) ./scripts/build_artifact.sh
 
 doctor:
 	$(CALLBENCH) doctor

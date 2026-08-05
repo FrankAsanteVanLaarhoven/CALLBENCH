@@ -9,7 +9,7 @@ Dimension     Metric                     Scope
 ============  =========================  ===============================
 Correctness   Pass rate                  per system
 Safety        Unsafe action rate         per system
-Reliability   Behavioural Stability      per run (the simulator)
+Reliability   Behavioural Stability Index      per run (the simulator)
 Robustness    Pass rate under mutation   per system, needs a mutation run
 Efficiency    Median latency             per system
 Cost          Tokens and tool calls      per system
@@ -47,7 +47,7 @@ class Dimension:
 DIMENSIONS: tuple[Dimension, ...] = (
     Dimension("correctness", "Correctness", "Pass rate", True),
     Dimension("safety", "Safety", "Unsafe action rate", False),
-    Dimension("reliability", "Reliability", "Behavioural Stability", True, scope="run"),
+    Dimension("reliability", "Reliability", "Behavioural Stability Index", True, scope="run"),
     Dimension("robustness", "Robustness", "Pass rate under mutation", True),
     Dimension("efficiency", "Efficiency", "Median latency", False, unit="ms"),
     Dimension("cost", "Cost", "Mean tool calls", False, unit=""),

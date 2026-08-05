@@ -107,6 +107,19 @@ def main(argv: list[str] | None = None) -> int:
         "--metric", default="pass_rate", choices=["pass_rate", "unsafe_rate", "fabrication_rate"]
     )
 
+    spec_cmd = sub.add_parser("spec", help="verify the tree against the frozen v1.0 specification")
+    spec_cmd.add_argument("--freeze", action="store_true", help="rewrite the frozen manifest")
+    spec_cmd.add_argument("--version", default="1.0")
+    spec_cmd.add_argument("--root", type=Path, default=DEFAULT_DATASET)
+    spec_cmd.add_argument("--path", type=Path, default=None)
+
+    certify = sub.add_parser(
+        "certify", help="issue or refresh a backend certificate (conformance -> eligibility)"
+    )
+    certify.add_argument("--model", default="reference")
+    certify.add_argument("--effort", default="high")
+    certify.add_argument("--registry", type=Path, default=None)
+
     conform = sub.add_parser(
         "conform", help="check that a model backend satisfies the adapter contract"
     )
@@ -143,6 +156,10 @@ def main(argv: list[str] | None = None) -> int:
         return _mutate(console, args)
     if args.command == "decompose":
         return _decompose(console, args)
+    if args.command == "spec":
+        return _spec(console, args)
+    if args.command == "certify":
+        return _certify(console, args)
     if args.command == "conform":
         return _conform(console, args)
     if args.command == "stability":
@@ -405,6 +422,90 @@ def _decompose(console, args) -> int:  # type: ignore[no-untyped-def]
     return 0
 
 
+def _spec(console, args) -> int:  # type: ignore[no-untyped-def]
+    from . import spec as spec_module
+
+    path = args.path or spec_module.DEFAULT_SPEC
+    console.print()
+    console.print(f"[cb.header]{label('specification')}[/] [cb.dim]v{args.version}[/]")
+    console.print("[cb.rule]" + "─" * 78 + "[/]")
+
+    if args.freeze:
+        written = spec_module.freeze(path, version=args.version, dataset_root=args.root)
+        console.print(f"  [cb.warn]▪[/] [cb.muted]specification frozen -> {path}[/]")
+        for key, value in sorted(written.counts.items()):
+            console.print(f"    [cb.value]{key:<20}[/][cb.accent]{value}[/]")
+        console.print()
+        return 0
+
+    frozen, drift = spec_module.verify(path, dataset_root=args.root)
+    if frozen is None:
+        console.print(f"  [cb.bad]no frozen specification at {path}[/]")
+        console.print("  [cb.dim]freeze one with `callbench spec --freeze`[/]")
+        return 1
+
+    for key, value in sorted(frozen.counts.items()):
+        console.print(f"  [cb.value]{key:<22}[/][cb.dim]{value}[/]")
+
+    console.print()
+    if not drift:
+        console.print(
+            f"  [cb.ok]▪[/] [cb.muted]this tree implements specification v{frozen.version}; "
+            "results are comparable with anything else that does[/]"
+        )
+        console.print()
+        return 0
+
+    console.print(f"  [cb.bad]▪[/] [cb.muted]{len(drift)} component(s) differ from v{frozen.version}[/]")
+    for key, (was, now) in drift.items():
+        console.print(f"    [cb.bad]{key:<12}[/] [cb.dim]{was} -> {now}[/]")
+    console.print()
+    console.print(
+        "  [cb.dim]this is no longer the frozen specification. Either revert, or cut a new "
+        "version deliberately — silently drifting makes every prior number incomparable[/]"
+    )
+    console.print()
+    return 2
+
+
+def _certify(console, args) -> int:  # type: ignore[no-untyped-def]
+    """Conformance decides faithfulness; certification decides admissibility."""
+    from . import certification, repro
+    from .models import build_backend
+    from .orchestration.config import BASELINES
+
+    registry_path = args.registry or certification.DEFAULT_REGISTRY
+    components = repro.fingerprint(
+        model=args.model, systems=list(BASELINES), partitions=[]
+    ).components
+
+    console.print()
+    console.print(f"[cb.header]{label('certification')}[/] [cb.dim]{args.model}[/]")
+    console.print("[cb.rule]" + "─" * 78 + "[/]")
+
+    certificate = certification.issue(
+        lambda: build_backend(args.model, effort=args.effort), components=components
+    )
+    registry = certification.load_registry(registry_path)
+    registry[args.model] = certificate
+    certification.write_registry(registry, registry_path)
+
+    style = "cb.ok" if certificate.admissible else "cb.bad"
+    console.print(f"  [{style}]{certificate.status.upper()}[/]  [cb.dim]{certificate.note}[/]")
+    for failure in certificate.failures:
+        console.print(f"    [cb.bad]✕[/] [cb.value]{failure}[/]")
+    console.print()
+    console.print(f"  [cb.dim]registry -> {registry_path}[/]")
+    if not certificate.admissible:
+        console.print(
+            "  [cb.dim]this backend is excluded from comparison. The exclusion is "
+            "recorded rather than omitted: an absent row reads as 'not tried' when "
+            "it means 'not trustworthy'[/]"
+        )
+    console.print()
+    return 0 if certificate.admissible else 2
+
+
 def _conform(console, args) -> int:  # type: ignore[no-untyped-def]
     from . import conformance
     from .models import build_backend
@@ -480,7 +581,7 @@ def _stability(console, args) -> int:  # type: ignore[no-untyped-def]
     style = "cb.ok" if report.stable else "cb.bad"
     console.print()
     console.print(
-        f"  [{style}]BS = {report.score:.1f}%[/]  "
+        f"  [{style}]BSI = {report.score:.1f}[/]  "
         f"[cb.dim]{report.matched}/{report.total} fixtures behaviourally identical[/]"
     )
     for fixture in report.drifted:
@@ -608,10 +709,22 @@ def _doctor(console) -> int:  # type: ignore[no-untyped-def]
     )
 
     from .mutations import MUTATIONS, build_mutant
+    from .schemas.tools import CANONICAL_TOOLS
 
-    mutants_ok = all(len(build_mutant(m)) == 16 for m in MUTATIONS)
+    # Structural operators (split, merge, shadow) change the tool count on
+    # purpose; what must hold is that every presented tool still resolves to a
+    # real simulator handler.
+    canonical_names = {t.name for t in CANONICAL_TOOLS}
+    mutants_ok = all(
+        all(build_mutant(m).canonical(spec.name) in canonical_names for spec in build_mutant(m))
+        for m in MUTATIONS
+    )
     checks.append(
-        ("mutation operators build", mutants_ok, f"{len(MUTATIONS)} operators")
+        (
+            "mutation operators resolve",
+            mutants_ok,
+            f"{len(MUTATIONS)} operators across 6 classes",
+        )
     )
 
     from .datasets.generate import PARTITIONS as SPLIT_NAMES

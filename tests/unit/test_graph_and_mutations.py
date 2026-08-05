@@ -120,7 +120,7 @@ def test_every_mutation_produces_a_usable_catalogue(mutation) -> None:  # type: 
 
 @pytest.mark.parametrize(
     "mutation",
-    [m for m in mutations.MUTATIONS if m.category is not mutations.Category.STRUCTURE],
+    [m for m in mutations.MUTATIONS if m.category is not mutations.Category.STRUCTURAL],
     ids=lambda m: m.name,
 )
 def test_non_structural_mutations_preserve_the_tool_count(mutation) -> None:  # type: ignore[no-untyped-def]

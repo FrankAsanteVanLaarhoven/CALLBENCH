@@ -1,3 +1,57 @@
+# Repository Authorship and Branding Policy
+
+## Ownership
+
+This repository and all project outputs are owned and authored by Frank Van
+Laarhoven.
+
+AI systems are development tools only. They are not authors, co-authors,
+contributors, maintainers, copyright holders, or owners of any part of this
+project.
+
+## Commit Policy
+
+1. Do not add any AI attribution or co-authorship trailer.
+2. Do not add co-authorship trailers naming an assistant, generation or
+   assistance metadata trailers, "AI-generated" markers, or similar
+   attribution language. The exhaustive list of prohibited tokens is in
+   `docs/AUTHORSHIP.md`, which is the one file permitted to contain them.
+3. Do not mention an AI provider or coding assistant in commit subjects or
+   commit bodies.
+4. Use only the configured human Git author identity.
+5. Before committing, inspect the complete commit message and remove
+   prohibited attribution.
+6. Before pushing, inspect recent commits for prohibited trailers or branding.
+7. Never amend, rewrite, or force-push published history without explicit
+   approval from Frank Van Laarhoven.
+
+## Codebase Branding Policy
+
+Do not introduce AI-assistant branding into source-code comments, file headers,
+documentation, README files, package metadata, application banners, CLI output,
+UI labels, badges, generated reports, test fixtures, repository descriptions,
+changelogs, release notes, branch names, or commit messages.
+
+## Permitted Technical References
+
+Provider and model names are permitted only where technically necessary: API
+integration code, dependency names, provider adapters, environment variables,
+model identifiers, compatibility documentation, benchmark labels, factual
+citations, licence compliance, and user-facing provider selection where it is a
+product feature. They must never imply that a provider or AI system owns,
+authors, maintains, or contributes to the repository.
+
+## Required Pre-Commit Checks
+
+    python3 scripts/check_authorship_policy.py     # staged files, message, identity
+    bash scripts/check_git_history.sh              # before pushing
+
+Both are wired: `.githooks/pre-commit`, `.githooks/commit-msg`, the
+`Authorship Policy` CI workflow, and `make check`. Full text and the historical
+exception: `docs/AUTHORSHIP.md`.
+
+---
+
 # CallBench
 
 Read `docs/METHODOLOGY.md` before changing anything under `src/callbench/datasets/`,

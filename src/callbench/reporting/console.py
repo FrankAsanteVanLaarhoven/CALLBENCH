@@ -65,6 +65,22 @@ def banner(console: Console, report: RunReport) -> None:
     console.print(Text("─" * 78, style="cb.rule"))
     console.print(grid)
 
+    admissibility = report.admissibility
+    if admissibility and not admissibility.get("admissible", True):
+        console.print()
+        block = Table.grid(padding=(0, 1))
+        block.add_column(style="cb.bad", no_wrap=True)
+        block.add_column(style="cb.muted")
+        block.add_row("▪", Text("NOT BENCHMARK-ELIGIBLE", style="cb.bad"))
+        block.add_row(
+            " ",
+            f"backend status: {admissibility.get('status', '?')}. "
+            f"{admissibility.get('note', '')}\n  These numbers are reported but are not "
+            "admissible for comparison against certified backends: a comparison using an "
+            "unverified adapter measures the adapter.",
+        )
+        console.print(block)
+
     if report.synthetic:
         console.print()
         warning = Table.grid(padding=(0, 1))

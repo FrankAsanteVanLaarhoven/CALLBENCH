@@ -19,3 +19,4 @@ datasets/hidden/
 # Run artefacts. Committed reports live in docs/, not here.
 reports/*
 !reports/.gitkeep
+dist/

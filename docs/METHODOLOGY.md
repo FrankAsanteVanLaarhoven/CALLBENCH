@@ -496,3 +496,129 @@ benchmark is for).
 - **Oracles are machine-derived and unaudited.** Computing rather than
   asserting them removes one class of error, not the other: a systematic
   generator mistake becomes 2,500 systematic oracle mistakes.
+
+---
+
+## 21. Certification: from faithful adapter to admissible result
+
+Conformance and certification answer different questions, and collapsing them
+is how invalid comparisons get published.
+
+```
+Backend  ──▶  Conformance  ──▶  Certification  ──▶  Benchmark-eligible
+              (contract)        (dated, hashed)      (admissible)
+```
+
+A certificate records the backend identity, the conformance result, the
+component hashes of the tree it was earned against, and the date. The third is
+load-bearing: a certificate earned under a different schema registry, taxonomy
+or verifier is not evidence about *this* benchmark, so `status_for` reports it
+as `stale` rather than honouring it.
+
+Four statuses: `certified` (admissible), `excluded` (failed the contract),
+`untested` (no certificate on file), `stale` (certified against another tree).
+Only `certified` is admissible.
+
+**Exclusions are published, not omitted.** An absent row in a comparison table
+reads as "this model was not tried", when what it means is "this adapter was
+not trustworthy". The registry at `docs/certified-backends.json` lists every
+backend that has been assessed and why it stands where it does.
+
+---
+
+## 22. The Generalisation Score
+
+| Tier | Condition | What it isolates |
+|---|---|---|
+| GS1 | Seen schema | competence on the catalogue supplied |
+| GS2 | Mutated schema | reading the catalogue vs remembering one |
+| GS3 | Novel tool domain | whether the method transfers past email |
+
+`GS1 − GS2` is the **transfer gap**: how much measured competence was
+catalogue-specific.
+
+GS3 is **not measurable in v1.0** and is reported as such rather than omitted.
+It requires a second tool domain; v1.0 ships one. Defining it inside the metric
+means the gap appears in the numbers rather than only in a limitations section,
+and a v2.0 result drops into an existing slot instead of requiring a new one.
+
+---
+
+## 23. The frozen v1.0 specification
+
+The freeze is a **manifest of component hashes**, not a version string in a
+file. "We are still running v1.0" is therefore checkable:
+
+```bash
+callbench spec           # verify this tree against docs/spec-v1.0.json
+callbench spec --freeze  # cut a new version, deliberately
+```
+
+Frozen counts for v1.0: 16 tools, 21 taxonomy codes, 9 oracle predicates,
+14 mutation operators, 5 splits, 5 tiers. `make check` runs `callbench spec`,
+so drifting the specification fails the build rather than quietly invalidating
+prior results.
+
+---
+
+## 24. Reviewer questions, answered
+
+**1. How were oracle labels generated and validated?**
+Computed, not asserted: each generator builds a fixture, inspects it, and
+derives the oracle from ground truth it just constructed (§2, §7). Validation
+is currently *internal* — an integration test asserts the reference planner can
+satisfy every oracle, so an unsatisfiable oracle fails the build. What is
+missing is external validation: no human annotation pass has been run and
+inter-annotator agreement is unmeasured. A systematic generator error would
+become a systematic oracle error, and nothing here would catch it.
+
+**2. How do results change with real LLM backends?**
+Unknown. This is the single largest gap and is stated as such throughout. The
+Anthropic backends are written, type-checked and conformance-tested, but no
+live call has been made. The decomposition (§18) bounds the concern in one
+direction: architecture accounts for ~67% of outcome variance across a
+three-point planner-competence axis, so the headline is not an artefact of one
+strong planner. It cannot tell us where a real model sits on that axis.
+
+**3. Does Behavioural Replay Verification generalise beyond email?**
+The relation is stated over state transitions and fixtures, with nothing
+email-specific in it: it applies wherever a simulator has observable state and
+a canonical script. That is an argument, not evidence. It has been demonstrated
+in exactly one domain, and GS3 is unmeasured for the same reason.
+
+**4. Can conformance tests be gamed?**
+Partly, and the design assumes so. The checks are *necessary* conditions, not
+sufficient ones: an adapter could hard-code an exclusion into the analysis and
+pass the privacy check without the model having read anything. Two things
+limit the payoff. Conformance does not test quality, so gaming it buys
+admissibility and no score. And the checks that matter most — no invented
+tools, no fabricated identifiers, no re-aimed repair — are properties of
+payloads the benchmark independently re-validates at the gate and the verifier,
+so a lie told at certification is caught during the run. A determined adapter
+author can still mislead; certification raises the cost and dates the claim.
+
+**5. How expensive is maintaining canonical fixtures?**
+Cheap by construction, because fixtures are *generated* from a seed rather than
+stored: 12,500 tasks regenerate in 2.6 s and the committed dataset is 8 MB. The
+maintenance cost is the behavioural baseline — eight signatures over a twelve
+step script — and it is deliberately a *gate*: changing simulator behaviour
+fails `make check` until re-recorded. That is a real cost paid on purpose; the
+alternative is behavioural drift that silently invalidates old numbers.
+
+**6. How sensitive are results to mutation operators?**
+Sensitive, and reported per class rather than pooled for exactly that reason
+(§13). Under the reference planner, retention is 100% on lexical tool renaming
+and paraphrase, 0% on parameter renaming, and 10% on structural split — a
+single pooled number would have hidden all three findings. The score averages
+only semantics-preserving operators, since a drop under a *meaning-changing*
+operator can be correct behaviour.
+
+**7. How does the benchmark compare with existing tool-use benchmarks?**
+Not empirically — no head-to-head has been run, and claiming one would be
+unsupported. The methodological difference is scope: benchmarks that score a
+tool call against a reference call cannot distinguish a malformed payload from
+a well-formed one that deleted the wrong message, because both are "incorrect".
+CallBench separates them across four authoritative layers and 21 taxonomy
+codes, and adds state-transition verification, which asks whether *only* the
+intended resource changed. Whether that extra machinery earns its cost is an
+empirical question this repository has not yet answered.

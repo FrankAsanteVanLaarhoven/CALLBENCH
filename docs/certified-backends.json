@@ -1,0 +1,21 @@
+{
+  "certificates": {
+    "reference": {
+      "backend": "reference:full",
+      "components": {
+        "dataset": "not-read",
+        "planner": "62f3d6861fa84b45",
+        "schemas": "7d93eb89768a5cde",
+        "simulator": "f04be798a70284ad",
+        "systems": "114039b6c30ac612",
+        "taxonomy": "5520078cf59ab65f",
+        "verifier": "7726a0aa5285bfcc"
+      },
+      "failures": [],
+      "issued": "2026-08-05",
+      "note": "admissible for comparison",
+      "status": "certified"
+    }
+  },
+  "definition": "A backend is benchmark-eligible only when it holds a current certificate: it passed the adapter conformance contract against a tree whose component hashes match the run's. Excluded backends are listed rather than omitted, because an absent row reads as 'not tried' when it means 'not trustworthy'."
+}
