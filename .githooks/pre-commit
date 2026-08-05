@@ -1,5 +1,5 @@
 #!/bin/sh
 set -eu
 
-python3 scripts/check_authorship_policy.py \
+python3 scripts/enforce_sole_authorship.py \
   --expected-email frankleroyvan@gmail.com

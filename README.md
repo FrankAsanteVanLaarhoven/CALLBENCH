@@ -469,7 +469,7 @@ src/callbench/
   domain.py         the BenchmarkDomain contract certification.py conformance -> eligibility
   spec.py           the frozen v1.0 manifest     reporting/     console, HTML, JSON
 mcp_server/         MCP + JSON-lines adapter
-.claude/            subagents, commands, hooks
+scripts/hooks/      deterministic pre-tool safety hooks (simulation-only backstop)
 datasets/           public validation adversarial stress (hidden is gitignored)
 tests/              unit contract integration adversarial regression
 ```

@@ -19,14 +19,13 @@ $CALLBENCH spec >/dev/null
 $CALLBENCH stability >/dev/null
 
 echo "==> staging"
-mkdir -p "$STAGE"/{src,tests,docs,datasets,reports,scripts,.claude,mcp_server}
+mkdir -p "$STAGE"/{src,tests,docs,datasets,reports,scripts,mcp_server}
 cp -R src/callbench "$STAGE/src/"
 cp -R tests/. "$STAGE/tests/"
 cp -R mcp_server/. "$STAGE/mcp_server/"
-cp -R .claude/. "$STAGE/.claude/"
 cp -R docs/. "$STAGE/docs/"
-cp scripts/build_artifact.sh "$STAGE/scripts/"
-cp README.md CLAUDE.md LICENSE Makefile pyproject.toml .env.example .gitignore "$STAGE/"
+cp -R scripts/. "$STAGE/scripts/"
+cp README.md GOVERNANCE.md LICENSE Makefile pyproject.toml .env.example .gitignore "$STAGE/"
 
 # Committed splits only. `hidden` is the contamination control and is
 # regenerated from the seed by the reviewer, never shipped.

@@ -1,11 +1,11 @@
-name: Authorship Policy
+name: Sole Authorship
 
 on:
   pull_request:
   push:
 
 jobs:
-  authorship-policy:
+  sole-authorship:
     runs-on: ubuntu-latest
 
     steps:
@@ -18,9 +18,9 @@ jobs:
           python-version: "3.12"
 
       - name: Check repository content
-        run: python scripts/check_authorship_policy.py --tree . --skip-identity
+        run: python scripts/enforce_sole_authorship.py --tree . --skip-identity
 
       # Full history is enforced: no cutoff. AUTHORSHIP_SINCE stays supported in
       # the script for a repository that inherits history it cannot rewrite.
       - name: Check Git history
-        run: bash scripts/check_git_history.sh
+        run: bash scripts/enforce_history_authorship.sh

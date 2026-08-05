@@ -20,3 +20,10 @@ datasets/hidden/
 reports/*
 !reports/.gitkeep
 dist/
+
+# Local development-assistant configuration; never published.
+# The deterministic safety hooks this benchmark relies on live in
+# scripts/hooks/ and remain tracked — they are part of the artifact, not
+# assistant configuration.
+.claude/
+CLAUDE.md

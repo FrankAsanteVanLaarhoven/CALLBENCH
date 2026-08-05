@@ -6,7 +6,7 @@ side effect. A claim enforced by convention is not enforced. This hook is the
 deterministic backstop: it runs before every tool call, it does not consult a
 model, and it blocks on match rather than warning.
 
-Exit codes follow the Claude Code hook contract: 0 allows, 2 blocks.
+Exit codes follow the pre-tool hook contract: 0 allows, 2 blocks.
 """
 
 from __future__ import annotations

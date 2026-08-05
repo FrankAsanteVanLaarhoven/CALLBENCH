@@ -29,7 +29,7 @@ install:
 check: authorship lint types test stability spec
 
 authorship:
-	python3 scripts/check_authorship_policy.py --tree . --skip-identity
+	python3 scripts/enforce_sole_authorship.py --tree . --skip-identity
 
 lint:
 	$(PY) -m ruff check src tests mcp_server

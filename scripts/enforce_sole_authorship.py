@@ -44,10 +44,9 @@ TEXT_SUFFIXES = {
 #: the prohibited strings. Exempting the guard from itself is necessary; the
 #: policy document is exempt for the same reason.
 SELF_REFERENTIAL = {
-    "scripts/check_authorship_policy.py",
-    "scripts/check_git_history.sh",
-    ".github/workflows/authorship-policy.yml",
-    "docs/AUTHORSHIP.md",
+    "scripts/enforce_sole_authorship.py",
+    "scripts/enforce_history_authorship.sh",
+    ".github/workflows/sole-authorship.yml",
 }
 
 
@@ -93,7 +92,7 @@ def scan_tree(root: Path) -> list[str]:
         relative = path.relative_to(root).as_posix()
         if relative in SELF_REFERENTIAL:
             continue
-        if any(part in {".git", ".venv", "dist", "node_modules"} for part in path.parts):
+        if any(part in {".git", ".venv", ".claude", "dist", "node_modules"} for part in path.parts):
             continue
         try:
             text = path.read_text(encoding="utf-8")
