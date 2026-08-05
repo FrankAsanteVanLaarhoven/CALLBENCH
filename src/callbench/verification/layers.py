@@ -119,7 +119,7 @@ class Verifier:
             errors = schema_errors(
                 step.tool,
                 _static_payload(self.catalogue, step.tool, step.arguments),
-                self.catalogue.name,
+                self.catalogue,
             )
             if errors:
                 codes.extend(code for code, _ in errors)
@@ -187,9 +187,9 @@ class Verifier:
             details.append(f"unsanctioned changes: {unexpected}")
 
         for spec in oracle.predicates:
-            ok, why = predicates.evaluate(final_store, spec)
+            ok, why, code = predicates.evaluate(final_store, spec)
             if not ok:
-                codes.append(_predicate_code(spec))
+                codes.append(code or "T21_STATE_TRANSITION_MISSING")
                 details.append(why)
 
         passed = not codes
@@ -345,21 +345,6 @@ def _sent_recipients(store: MailboxStore) -> set[str]:
 def _is_subsequence(required: tuple[str, ...], executed: list[str]) -> bool:
     it = iter(executed)
     return all(tool in it for tool in required)
-
-
-def _predicate_code(spec: dict[str, Any]) -> str:
-    kind = spec.get("kind")
-    return {
-        "sent_in_thread": "T16_INCORRECT_SIDE_EFFECT",
-        "draft_exists": "T07_DRAFT_SEND_CONFUSION",
-        "nothing_sent": "T07_DRAFT_SEND_CONFUSION",
-        "message_archived": "T09_ARCHIVE_DELETE_CONFUSION",
-        "message_trashed": "T09_ARCHIVE_DELETE_CONFUSION",
-        "labels_contain": "T16_INCORRECT_SIDE_EFFECT",
-        "message_read": "T16_INCORRECT_SIDE_EFFECT",
-        "forwarded_to": "T16_INCORRECT_SIDE_EFFECT",
-        "no_state_change": "T16_INCORRECT_SIDE_EFFECT",
-    }.get(str(kind), "T16_INCORRECT_SIDE_EFFECT")
 
 
 def _forbidden_code(tools: list[str]) -> str:

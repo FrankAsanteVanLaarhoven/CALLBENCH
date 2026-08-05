@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -31,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     gen = sub.add_parser("generate", help="generate the stratified task suite")
-    gen.add_argument("--size", type=int, default=500, help="tasks per partition")
+    gen.add_argument("--size", type=int, default=2500, help="tasks per split")
     gen.add_argument("--seed", type=int, default=20260805)
     gen.add_argument("--partitions", nargs="*", default=list(PARTITIONS))
     gen.add_argument("--root", type=Path, default=DEFAULT_DATASET)
@@ -45,10 +46,24 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="system names, or 'all' / 'ablations'. Default: the six baselines.",
     )
-    bench.add_argument("--partitions", nargs="*", default=["easy", "medium", "hard", "adversarial"])
+    bench.add_argument(
+        "--partitions",
+        nargs="*",
+        default=["public", "adversarial", "stress"],
+        help="splits to evaluate; `hidden` and `validation` are opt-in",
+    )
     bench.add_argument("--limit", type=int, default=None, help="cap cases per partition")
     bench.add_argument("--root", type=Path, default=DEFAULT_DATASET)
     bench.add_argument("--out", type=Path, default=DEFAULT_REPORTS)
+    bench.add_argument("--price-input", type=float, default=None, help="USD per 1M input tokens")
+    bench.add_argument("--price-output", type=float, default=None, help="USD per 1M output tokens")
+    bench.add_argument(
+        "--graphs",
+        type=int,
+        default=0,
+        metavar="N",
+        help="write execution graphs for the first N cases per system",
+    )
     bench.add_argument(
         "--no-cases",
         action="store_true",
@@ -61,6 +76,21 @@ def main(argv: list[str] | None = None) -> int:
     inspect.add_argument("--system", default="callbench_full")
     inspect.add_argument("--root", type=Path, default=DEFAULT_DATASET)
     inspect.add_argument("--partitions", nargs="*", default=list(PARTITIONS))
+    inspect.add_argument(
+        "--graph", type=Path, default=None, help="write the execution graph to this path"
+    )
+
+    mutate = sub.add_parser("mutate", help="mutation testing: measure tool generalisation")
+    mutate.add_argument("--model", default="reference")
+    mutate.add_argument("--system", default="callbench_full")
+    mutate.add_argument("--partitions", nargs="*", default=["public"])
+    mutate.add_argument("--limit", type=int, default=100, help="cases per partition")
+    mutate.add_argument("--root", type=Path, default=DEFAULT_DATASET)
+    mutate.add_argument("--out", type=Path, default=DEFAULT_REPORTS)
+
+    replay = sub.add_parser("replay", help="check a recorded run against the current tree")
+    replay.add_argument("replay_id", nargs="?", default=None)
+    replay.add_argument("--results", type=Path, default=DEFAULT_REPORTS / "results.json")
 
     tools = sub.add_parser("tools", help="print a tool catalogue")
     tools.add_argument("--catalogue", default="catalogue_v1")
@@ -76,6 +106,10 @@ def main(argv: list[str] | None = None) -> int:
         return _bench(console, args)
     if args.command == "inspect":
         return _inspect(console, args)
+    if args.command == "mutate":
+        return _mutate(console, args)
+    if args.command == "replay":
+        return _replay(console, args)
     if args.command == "tools":
         return _tools(console, args)
     if args.command == "doctor":
@@ -128,7 +162,15 @@ def _bench(console, args) -> int:  # type: ignore[no-untyped-def]
                 task_ids[system] = progress.add_task("", total=total, system=system)
             progress.update(task_ids[system], completed=position)
 
-        runner = Runner(args.model, systems, effort=args.effort, progress=on_progress)
+        runner = Runner(
+            args.model,
+            systems,
+            effort=args.effort,
+            progress=on_progress,
+            dataset_root=args.root,
+            price_input=args.price_input,
+            price_output=args.price_output,
+        )
         report = runner.run(tasks, args.partitions)
 
     ui.render_report(console, report)
@@ -141,6 +183,9 @@ def _bench(console, args) -> int:  # type: ignore[no-untyped-def]
     if not args.no_cases:
         cases_path = html_report.write_cases_jsonl(report, args.out / "cases.jsonl")
         console.print(f"    [cb.dim]{cases_path}[/]")
+    if args.graphs:
+        written = _write_graphs(report, tasks, args.out / "graphs", args.graphs)
+        console.print(f"    [cb.dim]{args.out / 'graphs'}  ({written} execution graphs)[/]")
     console.print()
     return 0
 
@@ -166,10 +211,150 @@ def _inspect(console, args) -> int:  # type: ignore[no-untyped-def]
     else:
         backend = build_backend(args.model)
 
-    result = Pipeline(backend, system).run(task)
+    pipeline = Pipeline(backend, system)
+    result = pipeline.run(task)
     ui.case_detail(console, result, task)
+
+    if args.graph is not None:
+        from . import graph as graph_module
+
+        lineage = pipeline.last_ledger.lineage() if pipeline.last_ledger else []
+        built = graph_module.build(result, task, lineage)
+        args.graph.parent.mkdir(parents=True, exist_ok=True)
+        args.graph.write_text(
+            json.dumps(
+                {**built.to_dict(), "mermaid": built.to_mermaid()}, indent=2, sort_keys=True
+            ),
+            encoding="utf-8",
+        )
+        console.print(f"  [cb.dim]execution graph -> {args.graph}[/]")
+
     console.print()
     return 0 if result.passed else 1
+
+
+def _write_graphs(report, tasks, out_dir: Path, limit: int) -> int:  # type: ignore[no-untyped-def]
+    """Sample execution graphs.
+
+    Graphs are sampled rather than written for every case: a full sweep is tens
+    of thousands of files. The sample size is printed so nobody mistakes a
+    sample for a census.
+    """
+    from . import graph as graph_module
+
+    by_id = {t.id: t for t in tasks}
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = 0
+    for system, results in sorted(report.results.items()):
+        for result in results[:limit]:
+            task = by_id.get(result.task_id)
+            if task is None:
+                continue
+            built = graph_module.build(result, task, [])
+            path = out_dir / f"{system}__{result.task_id}.json"
+            path.write_text(
+                json.dumps(
+                    {**built.to_dict(), "mermaid": built.to_mermaid()}, indent=2, sort_keys=True
+                ),
+                encoding="utf-8",
+            )
+            written += 1
+    return written
+
+
+def _mutate(console, args) -> int:  # type: ignore[no-untyped-def]
+    from . import mutations
+    from .models import build_backend
+    from .models.reference import Profile, ReferenceBackend, ReferenceConfig
+
+    tasks = _load_tasks(args.root, args.partitions, args.limit)
+    if not tasks:
+        console.print(f"[cb.bad]no tasks found under {args.root}[/]")
+        return 1
+
+    system = BY_NAME[args.system]
+
+    def factory():  # type: ignore[no-untyped-def]
+        if args.model.startswith("reference"):
+            return ReferenceBackend(
+                ReferenceConfig(
+                    profile=Profile(system.reference_profile), strict_json=system.strict_json
+                )
+            )
+        return build_backend(args.model)
+
+    console.print()
+    console.print(f"[cb.header]{label('mutation testing')}[/] [cb.dim]{len(tasks)} cases[/]")
+
+    def on_progress(name: str, index: int, total: int) -> None:
+        console.print(f"  [cb.dim]{index}/{total}  {name}[/]")
+
+    report = mutations.run(tasks, factory, system, progress=on_progress)
+    ui.mutation_table(console, report)
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    path = args.out / "mutations.json"
+    path.write_text(json.dumps(report.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
+    console.print(f"  [cb.dim]{path}[/]")
+    console.print()
+    return 0
+
+
+def _replay(console, args) -> int:  # type: ignore[no-untyped-def]
+    """Compare a recorded fingerprint against the current tree."""
+    from . import repro
+    from .orchestration.config import BY_NAME as SYSTEMS
+
+    recorded = repro.load(args.results)
+    if recorded is None:
+        console.print(
+            f"[cb.bad]no fingerprint in {args.results}[/] "
+            "[cb.dim]run `callbench bench` first[/]"
+        )
+        return 1
+    if args.replay_id and args.replay_id != recorded.replay_id:
+        console.print(
+            f"[cb.bad]{args.results} records {recorded.replay_id}, not {args.replay_id}[/]"
+        )
+        return 1
+
+    config = recorded.config
+    systems = [SYSTEMS[name] for name in config.get("systems", []) if name in SYSTEMS]
+    current = repro.fingerprint(
+        model=config.get("model", "reference"),
+        systems=systems,
+        partitions=config.get("partitions", []),
+        dataset_root=DEFAULT_DATASET,
+        seed=config.get("seed"),
+        effort=config.get("effort", "high"),
+    )
+
+    console.print()
+    console.print(f"[cb.header]{label('replay')}[/]")
+    console.print(f"  [cb.label]RECORDED[/]  [cb.value]{recorded.replay_id}[/]")
+    console.print(f"  [cb.label]CURRENT [/]  [cb.value]{current.replay_id}[/]")
+
+    drift = recorded.diff(current)
+    if not drift:
+        console.print()
+        console.print(
+            "  [cb.ok]▪[/] [cb.muted]every component matches; this run is reproducible "
+            "from the current tree[/]"
+        )
+        console.print()
+        return 0
+
+    console.print()
+    console.print(f"  [cb.warn]▪[/] [cb.muted]{len(drift)} component(s) changed since the run[/]")
+    for name, (was, now) in drift.items():
+        console.print(f"    [cb.bad]{name:<12}[/] [cb.dim]{was} -> {now}[/]")
+    console.print()
+    console.print(
+        "  [cb.dim]the recorded numbers describe a different benchmark; regenerate "
+        "or check out the recorded revision before comparing[/]"
+    )
+    console.print()
+    return 2
 
 
 def _tools(console, args) -> int:  # type: ignore[no-untyped-def]
@@ -206,9 +391,40 @@ def _doctor(console) -> int:  # type: ignore[no-untyped-def]
     renamed = sum(1 for spec in v4 if v4.canonical(spec.name) != spec.name)
     checks.append(("catalogue_v4 renames every tool", renamed == len(v4), f"{renamed}/{len(v4)}"))
 
-    from .taxonomy import ALL_CODES
+    from .taxonomy import ALL_CODES, describe
 
-    checks.append(("taxonomy is complete", len(ALL_CODES) == 18, f"{len(ALL_CODES)} codes"))
+    family_codes = [describe(code).family_code for code in ALL_CODES]
+    checks.append(
+        (
+            "taxonomy ids are unique",
+            len(set(ALL_CODES)) == len(ALL_CODES) == len(set(family_codes)),
+            f"{len(ALL_CODES)} codes across 6 families",
+        )
+    )
+
+    from .mutations import MUTATIONS, build_mutant
+
+    mutants_ok = all(len(build_mutant(m)) == 16 for m in MUTATIONS)
+    checks.append(
+        ("mutation operators build", mutants_ok, f"{len(MUTATIONS)} operators")
+    )
+
+    from .datasets.generate import PARTITIONS as SPLIT_NAMES
+    from .datasets.generate import GeneratorConfig, generate_partition
+
+    probe = {
+        split: {t.fixture for t in generate_partition(split, GeneratorConfig(size=12, seed=1))}
+        for split in SPLIT_NAMES
+    }
+    overlaps = [
+        f"{a}∩{b}"
+        for i, a in enumerate(SPLIT_NAMES)
+        for b in SPLIT_NAMES[i + 1:]
+        if probe[a] & probe[b]
+    ]
+    checks.append(
+        ("splits are disjoint", not overlaps, ", ".join(overlaps) or f"{len(SPLIT_NAMES)} splits")
+    )
 
     import os
 

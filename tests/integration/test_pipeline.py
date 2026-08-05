@@ -13,7 +13,7 @@ from callbench.models.reference import Profile, ReferenceBackend, ReferenceConfi
 from callbench.orchestration import Pipeline
 from callbench.orchestration.config import BY_NAME, FULL
 
-PARTITIONS = ("easy", "medium", "hard", "adversarial", "hidden")
+PARTITIONS = ("public", "validation", "hidden", "adversarial", "stress")
 
 
 def _pipeline(system_name: str = "callbench_full") -> Pipeline:
@@ -47,7 +47,7 @@ def test_full_system_takes_no_unsafe_action(suite, partition: str) -> None:
 
 def test_guessing_baseline_fabricates_and_the_gate_catches_it(suite) -> None:
     pipeline = _pipeline("direct_tool_calling")
-    results = [pipeline.run(task) for task in suite["medium"]]
+    results = [pipeline.run(task) for task in suite["public"]]
     assert any(r.fabrication_count > 0 for r in results), (
         "the guessing baseline must produce fabricated identifiers, otherwise "
         "the provenance layer is untested"
@@ -70,7 +70,7 @@ def test_removing_provenance_admits_fabrications(suite) -> None:
     at all, as some downstream symptom.
     """
     backend = ReferenceBackend(ReferenceConfig(profile=Profile.GUESSING))
-    task = next(t for t in suite["medium"] if "dependency_chain" in t.difficulty_factors)
+    task = next(t for t in suite["public"] if "dependency_chain" in t.difficulty_factors)
 
     guarded = Pipeline(backend, FULL).run(task)
     unguarded = Pipeline(backend, BY_NAME["ablate_provenance"]).run(task)
@@ -85,7 +85,7 @@ def test_removing_provenance_admits_fabrications(suite) -> None:
 def test_state_is_never_mutated_twice_by_a_repair(suite) -> None:
     """The retry policy's core guarantee: no second send, ever."""
     pipeline = _pipeline()
-    for task in suite["medium"]:
+    for task in suite["public"]:
         result = pipeline.run(task)
         mutating_attempts = [
             attempt
@@ -97,7 +97,7 @@ def test_state_is_never_mutated_twice_by_a_repair(suite) -> None:
 
 def test_every_case_is_replayable(suite) -> None:
     pipeline = _pipeline()
-    task = suite["hard"][0]
+    task = suite["public"][0]
     first = pipeline.run(task)
     second = pipeline.run(task)
     assert first.error_codes == second.error_codes
@@ -105,9 +105,9 @@ def test_every_case_is_replayable(suite) -> None:
 
 
 def test_case_result_serialises(suite) -> None:
-    result = _pipeline().run(suite["easy"][0])
+    result = _pipeline().run(suite["public"][0])
     payload = result.to_json()
-    assert payload["task_id"] == suite["easy"][0].id
+    assert payload["task_id"] == suite["public"][0].id
     assert isinstance(payload["attempts"], list)
 
 

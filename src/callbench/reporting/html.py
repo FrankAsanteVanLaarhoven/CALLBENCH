@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..metrics.stats import Interval
 from ..orchestration.runner import RunReport
-from ..taxonomy import BY_CODE, SAFETY_CRITICAL
+from ..taxonomy import BY_CODE, SAFETY_CRITICAL, sort_key
 
 _CSS = """
 :root {
@@ -179,9 +179,12 @@ def render(report: RunReport) -> str:
     parts.append(_kpi_section(report))
     parts.append(_interval_section(report))
     parts.append(_partition_section(report))
+    parts.append(_tier_section(report))
+    parts.append(_operations_section(report))
     parts.append(_taxonomy_section(report))
     parts.append(_comparison_section(report))
     parts.append(_notes_section(report))
+    parts.append(_fingerprint_section(report))
     parts.append(_skipped_section(report))
     parts.append(_footer())
     parts.append("</div>")
@@ -199,7 +202,8 @@ def _kpi_section(report: RunReport) -> str:
     head = (
         "<tr><th class='name'>System</th><th>Tool selection</th><th>Argument exact</th>"
         "<th>Schema validity</th><th>Plan success</th><th>Final state</th>"
-        "<th>Fabrication</th><th>Unsafe action</th><th>Mean calls</th><th>Score</th></tr>"
+        "<th>Fabrication</th><th>Unsafe action</th><th>Mean calls</th>"
+        "<th>Trust</th><th>Score</th></tr>"
     )
     rows: list[str] = []
     for metrics in report.systems:
@@ -216,14 +220,17 @@ def _kpi_section(report: RunReport) -> str:
             f"<td>{_pct(metrics.rates.get('fabrication_rate'), False)}</td>"
             f"<td>{_pct(metrics.rates.get('unsafe_action_rate'), False)}</td>"
             f"<td class='dim'>{metrics.mean_tool_calls:.2f}</td>"
+            f"<td class='{_trust_cls(metrics)}'>{_trust_value(metrics)}</td>"
             f"<td class='{score_cls}'>{composite:.1f}</td>"
             "</tr>"
         )
     return (
         "<section><h2>Primary KPIs</h2><div class='scroll'><table><thead>"
         f"{head}</thead><tbody>{''.join(rows)}</tbody></table></div>"
-        "<p class='legend'>Point estimates. Score is the safety-weighted composite on a "
-        "0–100 scale, after hard penalties.</p></section>"
+        "<p class='legend'>Point estimates. <b>Trust</b> is a weighted rate for ranking; "
+        "<b>Score</b> is the safety-weighted composite after absolute penalties. Where the "
+        "two disagree, the score is describing a tail the trust score averaged away — and "
+        "that disagreement is itself a finding.</p></section>"
     )
 
 
@@ -296,26 +303,133 @@ def _taxonomy_section(report: RunReport) -> str:
         return ""
     head = "".join(f"<th>{html.escape(m.system)}</th>" for m in report.systems)
     rows: list[str] = []
-    for code in sorted(codes, key=lambda c: (c not in SAFETY_CRITICAL, c)):
+    for code in sorted(codes, key=sort_key):
         spec = BY_CODE.get(code)
         cls = "crit" if code in SAFETY_CRITICAL else ""
-        cells: list[str] = []
+        cells = []
         for metrics in report.systems:
             count = codes[code].get(metrics.system, 0)
             cells.append(
                 f"<td class='{cls if count else 'zero'}'>{count if count else '·'}</td>"
             )
         rows.append(
-            f"<tr><td class='name {cls}'>{html.escape(code)}</td>"
+            f"<tr><td class='name {cls}'>{html.escape(spec.family_code if spec else code)}</td>"
+            f"<td class='name dim'>{html.escape(spec.family.value if spec else '—')}</td>"
             f"<td class='name dim'>{html.escape(spec.title if spec else '—')}</td>"
             f"{''.join(cells)}</tr>"
         )
     return (
         "<section><h2>Failure taxonomy</h2><div class='scroll'><table><thead>"
-        f"<tr><th class='name'>Code</th><th class='name'>Failure</th>{head}</tr></thead>"
+        f"<tr><th class='name'>Code</th><th class='name'>Family</th>"
+        f"<th class='name'>Failure</th>{head}</tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table></div>"
         "<p class='legend'>Magenta codes are safety-critical: they carry hard score "
-        "penalties and are reported separately from accuracy.</p></section>"
+        "penalties and are reported separately from accuracy. Family codes are shown "
+        "here; the stable identifiers (T01…) are in results.json.</p></section>"
+    )
+
+
+def _trust_value(metrics: object) -> str:
+    trust = getattr(metrics, "trust", None)
+    return f"{trust.score:.1f}" if trust else "·"
+
+
+def _trust_cls(metrics: object) -> str:
+    trust = getattr(metrics, "trust", None)
+    if trust is None:
+        return "dim"
+    return "ok" if trust.score >= 90 else "warn" if trust.score >= 70 else "bad"
+
+
+def _tier_section(report: RunReport) -> str:
+    tiers = sorted({t for m in report.systems for t in m.by_tier})
+    if len(tiers) < 2:
+        return ""
+    head = "".join(f"<th>{html.escape(t)}</th>" for t in tiers)
+    rows: list[str] = []
+    for metrics in report.systems:
+        cells: list[str] = []
+        for tier in tiers:
+            stats = metrics.by_tier.get(tier)
+            if stats is None:
+                cells.append("<td class='dim'>·</td>")
+                continue
+            rate = stats["pass_rate"]
+            cells.append(f"<td class='{_cls(rate)}'>{rate * 100:.1f}%</td>")
+        rows.append(f"<tr><td class='name'>{html.escape(metrics.system)}</td>{''.join(cells)}</tr>")
+    return (
+        "<section><h2>Pass rate by difficulty tier</h2><div class='scroll'><table><thead>"
+        f"<tr><th class='name'>System</th>{head}</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
+        "<p class='legend'>Tiers cut across splits, so a mixed split is still analysable by "
+        "difficulty. Splits decide who may see a task; tiers decide what it is.</p></section>"
+    )
+
+
+def _operations_section(report: RunReport) -> str:
+    rows: list[str] = []
+    priced = False
+    for metrics in report.systems:
+        lat = metrics.latency
+        cost = metrics.cost
+        if cost is not None and cost.priced:
+            priced = True
+        rows.append(
+            "<tr>"
+            f"<td class='name'>{html.escape(metrics.system)}</td>"
+            f"<td>{lat.planning_ms:.2f}</td>" if lat else "<td class='dim'>·</td>"
+        )
+        rows[-1] += (
+            f"<td>{lat.execution_ms:.2f}</td><td>{lat.verification_ms:.2f}</td>"
+            f"<td>{lat.repair_ms:.2f}</td><td>{lat.total_ms:.2f}</td>"
+            f"<td>{lat.p95_total_ms:.2f}</td>" if lat else "<td class='dim'>·</td>" * 5
+        )
+        rows[-1] += (
+            f"<td class='dim'>{metrics.retry_rate * 100:.1f}%</td>"
+            + (
+                f"<td>{cost.usd_per_case:.5f}</td>"
+                if cost and cost.priced
+                else "<td class='dim'>n/a</td>"
+            )
+            + "</tr>"
+        )
+    note = (
+        "Cost uses the cached price table; override with --price-input/--price-output."
+        if priced
+        else "No model tokens were consumed, so there is no monetary cost to report."
+    )
+    return (
+        "<section><h2>Latency and cost</h2><div class='scroll'><table><thead>"
+        "<tr><th class='name'>System</th><th>Plan ms</th><th>Exec ms</th><th>Verify ms</th>"
+        "<th>Repair ms</th><th>Total ms</th><th>p95 ms</th><th>Retries</th>"
+        "<th>USD / case</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
+        f"<p class='legend'>Latency is the median per stage, with p95 on the total — agent "
+        f"latency is long-tailed by construction and a mean hides the tail. {note}</p></section>"
+    )
+
+
+def _fingerprint_section(report: RunReport) -> str:
+    if not report.fingerprint:
+        return ""
+    components = report.fingerprint.get("components", {})
+    environment = report.fingerprint.get("environment", {})
+    rows = "".join(
+        f"<tr><td class='name'>{html.escape(k)}</td><td class='dim'>{html.escape(str(v))}</td></tr>"
+        for k, v in sorted(components.items())
+    )
+    env = ", ".join(f"{k} {v}" for k, v in sorted(environment.items()))
+    return (
+        "<section><h2>Reproducibility</h2>"
+        f"<dl class='meta'><div><dt>replay id</dt><dd>"
+        f"{html.escape(str(report.fingerprint.get('replay_id', '?')))}</dd></div>"
+        f"<div><dt>environment</dt><dd>{html.escape(env)}</dd></div></dl>"
+        f"<div class='scroll'><table><tbody>{rows}</tbody></table></div>"
+        "<p class='legend'>Component hashes over the tool schemas, taxonomy, fixture "
+        "generator, verifier, scoring weights, system configurations and dataset bytes. "
+        "<code>callbench replay &lt;id&gt;</code> recomputes them against the current tree "
+        "and reports which ones moved — turning \"I cannot reproduce this\" into a diff. "
+        "Wall-clock, hostname and paths are deliberately excluded.</p></section>"
     )
 
 

@@ -1,9 +1,9 @@
 PY ?= ./.venv/bin/python
 CALLBENCH ?= ./.venv/bin/callbench
-SIZE ?= 500
+SIZE ?= 2500
 SEED ?= 20260805
 
-.PHONY: help install check lint types test dataset bench bench-all doctor report clean
+.PHONY: help install check lint types test dataset bench bench-all mutate replay doctor report clean
 
 help:
 	@echo "install    create .venv and install the package with dev extras"
@@ -11,6 +11,8 @@ help:
 	@echo "dataset    regenerate every partition from the seed (SIZE=$(SIZE))"
 	@echo "bench      run the baselines against the reference planner"
 	@echo "bench-all  run the baselines and every ablation"
+	@echo "mutate     mutation testing: measure tool generalisation"
+	@echo "replay     check the last run against the current tree"
 	@echo "doctor     verify the harness invariants"
 	@echo "clean      remove reports and caches"
 
@@ -36,10 +38,16 @@ dataset:
 # The hidden partition is the contamination control: regenerate it on demand,
 # never commit it. `make dataset` writes it locally; .gitignore keeps it out.
 bench:
-	$(CALLBENCH) bench --model reference --partitions easy medium hard adversarial
+	$(CALLBENCH) bench --model reference --partitions public adversarial stress
 
 bench-all:
-	$(CALLBENCH) bench --model reference --systems all --partitions easy medium hard adversarial
+	$(CALLBENCH) bench --model reference --systems all --partitions public adversarial stress
+
+mutate:
+	$(CALLBENCH) mutate --limit 250
+
+replay:
+	$(CALLBENCH) replay
 
 doctor:
 	$(CALLBENCH) doctor

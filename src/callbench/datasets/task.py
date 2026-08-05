@@ -56,13 +56,23 @@ class Oracle:
 class Task:
     id: str
     prompt: str
+    #: The evaluation split: public | validation | hidden | adversarial | stress.
+    #: Splits decide *who may see* a task.
     partition: str
+    #: The difficulty stratum: easy | medium | hard | adversarial | stress.
+    #: Tiers decide *what a task is*, and are reported within every split so a
+    #: mixed split can still be broken down by difficulty.
+    tier: str
     catalogue: str
     fixture: str
     current_time: str
     oracle: Oracle
     difficulty_factors: tuple[str, ...] = ()
     policy: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def split(self) -> str:
+        return self.partition
 
     def contract(self) -> TaskContract:
         return TaskContract(
@@ -73,6 +83,7 @@ class Task:
             current_time=self.current_time,
             policy=Policy.from_dict(self.policy),
             partition=self.partition,
+            tier=self.tier,
             difficulty_factors=self.difficulty_factors,
         )
 
@@ -88,6 +99,7 @@ class Task:
             id=raw["id"],
             prompt=raw["prompt"],
             partition=raw["partition"],
+            tier=raw.get("tier", raw["partition"]),
             catalogue=raw["catalogue"],
             fixture=raw["fixture"],
             current_time=raw["current_time"],

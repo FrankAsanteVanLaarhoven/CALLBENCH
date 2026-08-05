@@ -86,8 +86,13 @@ def build_fixture(fixture_id: str) -> MailboxStore:
     threads: list[Thread] = []
     counter = 100
 
-    thread_count = rng.randint(5, 7)
-    topics = rng.sample(_TOPICS, k=thread_count)
+    # A "str" fixture is the same mailbox generator run denser: every topic is
+    # present and threads run deeper, so message selection has many more
+    # plausible candidates. The stress tier measures selection and efficiency
+    # under load, not a different kind of task.
+    dense = "str" in fixture_id
+    thread_count = len(_TOPICS) if dense else rng.randint(5, 7)
+    topics = _TOPICS if dense else tuple(rng.sample(_TOPICS, k=thread_count))
 
     for t_index, (subject, opener) in enumerate(topics):
         thread_id = f"thread_{10 + t_index}"
@@ -99,7 +104,7 @@ def build_fixture(fixture_id: str) -> MailboxStore:
         external = [c for c in contacts if c.external][t_index % 3] if t_index % 3 == 0 else None
         participants = [*internal] + ([external] if external else [])
 
-        depth = rng.randint(1, 3)
+        depth = rng.randint(3, 5) if dense else rng.randint(1, 3)
         for d in range(depth):
             counter += 1
             sender = participants[d % len(participants)]

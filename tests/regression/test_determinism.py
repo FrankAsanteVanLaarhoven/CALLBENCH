@@ -16,11 +16,14 @@ from callbench.datasets.task import Task
 from callbench.simulator import build_fixture
 
 CONFIG = GeneratorConfig(size=8, seed=20260805)
-PARTITIONS = ("easy", "medium", "hard", "adversarial", "hidden")
+PARTITIONS = ("public", "validation", "hidden", "adversarial", "stress")
 
 
 @pytest.mark.regression
-@pytest.mark.parametrize("fixture_id", ["fixture_std_201", "fixture_std_242", "fixture_inj_207"])
+@pytest.mark.parametrize(
+    "fixture_id",
+    ["fixture_std_201", "fixture_std_400", "fixture_inj_807", "fixture_str_1000"],
+)
 def test_fixture_hash_is_stable_across_builds(fixture_id: str) -> None:
     hashes = {build_fixture(fixture_id).state_hash() for _ in range(3)}
     assert len(hashes) == 1
@@ -63,15 +66,48 @@ def test_every_task_has_a_usable_oracle(partition: str) -> None:
 @pytest.mark.regression
 def test_a_seed_change_changes_the_suite() -> None:
     """Otherwise the seed is decorative and the hidden partition is not held out."""
-    a = generate_partition("easy", CONFIG)
-    b = generate_partition("easy", GeneratorConfig(size=8, seed=1))
+    a = generate_partition("public", CONFIG)
+    b = generate_partition("public", GeneratorConfig(size=8, seed=1))
     assert [t.to_dict() for t in a] != [t.to_dict() for t in b]
 
 
 @pytest.mark.regression
 def test_hidden_partition_is_paraphrased_and_renamed() -> None:
     hidden = generate_partition("hidden", CONFIG)
-    easy = {t.prompt for t in generate_partition("easy", CONFIG)}
+    public = {t.prompt for t in generate_partition("public", CONFIG)}
     assert all(t.catalogue == "catalogue_v4" for t in hidden)
     assert all("renamed_catalogue" in t.difficulty_factors for t in hidden)
-    assert not (easy & {t.prompt for t in hidden}), "hidden prompts must not be verbatim copies"
+    assert not (public & {t.prompt for t in hidden}), "hidden prompts must not be verbatim copies"
+
+
+@pytest.mark.regression
+def test_splits_are_disjoint_at_the_fixture_level() -> None:
+    """Held out has to mean held out.
+
+    Salting the PRNG alone is not enough: templated prompts collide as strings
+    across splits. Disjoint fixture ranges are what make a validation task a
+    genuinely different question from a public one.
+    """
+    import itertools
+
+    fixtures = {
+        split: {t.fixture for t in generate_partition(split, GeneratorConfig(size=40, seed=1))}
+        for split in PARTITIONS
+    }
+    for a, b in itertools.combinations(fixtures, 2):
+        assert not (fixtures[a] & fixtures[b]), f"{a} and {b} share fixtures"
+
+
+@pytest.mark.regression
+def test_reproducibility_fingerprint_is_stable_and_sensitive() -> None:
+    from callbench import repro
+    from callbench.orchestration.config import BASELINES
+
+    systems = list(BASELINES)
+    first = repro.fingerprint(model="reference", systems=systems, partitions=["public"])
+    second = repro.fingerprint(model="reference", systems=systems, partitions=["public"])
+    assert first.replay_id == second.replay_id
+
+    other = repro.fingerprint(model="claude-opus-5", systems=systems, partitions=["public"])
+    assert other.replay_id != first.replay_id
+    assert "planner" in first.diff(other)

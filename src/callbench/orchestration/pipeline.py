@@ -17,7 +17,7 @@ from ..contracts import Attempt, CaseResult, Decision, Plan, RiskLevel, TaskAnal
 from ..datasets.task import Task
 from ..models.base import Backend
 from ..policies import Guardian, ProvenanceLedger
-from ..schemas import get_catalogue
+from ..schemas import Catalogue, get_catalogue
 from ..simulator import build_fixture
 from ..verification import Verifier
 from .config import SystemConfig
@@ -32,17 +32,29 @@ class PipelineDeps:
 class Pipeline:
     """Runs one task end to end and produces a replayable :class:`CaseResult`."""
 
-    def __init__(self, backend: Backend, system: SystemConfig) -> None:
+    def __init__(
+        self,
+        backend: Backend,
+        system: SystemConfig,
+        *,
+        catalogue_override: Catalogue | None = None,
+    ) -> None:
         self.backend = backend
         self.system = system
+        #: Used by mutation testing to swap the tool surface without touching
+        #: the task, the fixture or the oracle.
+        self.catalogue_override = catalogue_override
         self.analyst = Analyst(backend)
         self.planner = Planner(backend)
         self.failure_analyst = FailureAnalyst(backend)
+        #: Provenance ledger from the most recent run, so callers that want a
+        #: graph do not have to re-execute the case to get one.
+        self.last_ledger: ProvenanceLedger | None = None
 
     def run(self, task: Task) -> CaseResult:
         started = time.perf_counter()
         contract = task.contract()
-        catalogue = get_catalogue(task.catalogue)
+        catalogue = self.catalogue_override or get_catalogue(task.catalogue)
         store = build_fixture(task.fixture)
         guardian = Guardian(catalogue, contract.policy, config=self.system.gate)
         executor = Executor(catalogue, store, guardian, current_time=contract.current_time)
@@ -50,19 +62,25 @@ class Pipeline:
 
         ledger = ProvenanceLedger()
         ledger.add_user_request(contract.user_request)
+        self.last_ledger = ledger
 
         result = CaseResult(
             task_id=task.id,
             partition=task.partition,
+            tier=task.tier,
             system=self.system.name,
             model=self.backend.name,
         )
 
+        planning_started = time.perf_counter()
         analysis = (
             self.analyst.analyse(contract, catalogue)
             if self.system.use_analyst
             else _bare_analysis(contract.user_request)
         )
+        planning_ms = (time.perf_counter() - planning_started) * 1000
+        execution_ms = 0.0
+        repair_ms = 0.0
 
         plan: Plan | None = None
         outcome = None
@@ -72,8 +90,10 @@ class Pipeline:
         for index in range(self.system.max_repairs + 1):
             attempt = Attempt(index=index, analysis=analysis)
 
+            stage_started = time.perf_counter()
             if index == 0:
                 plan = self.planner.plan(contract, catalogue, analysis)
+                planning_ms += (time.perf_counter() - stage_started) * 1000
             else:
                 previous = plan or Plan()
                 plan = self.failure_analyst.repair(
@@ -84,6 +104,7 @@ class Pipeline:
                     reason=attempt.repair_reason or "previous attempt was rejected",
                     violations=blocked_codes,
                 )
+                repair_ms += (time.perf_counter() - stage_started) * 1000
                 if _same_plan(previous, plan):
                     # A repair that reproduces the rejected plan has nothing to
                     # add. Burning the remaining budget on identical attempts
@@ -112,7 +133,9 @@ class Pipeline:
                     break
                 continue
 
+            execution_started = time.perf_counter()
             outcome = executor.run(plan, ledger)
+            execution_ms += (time.perf_counter() - execution_started) * 1000
             attempt.execution = outcome.records
             blocked_codes = outcome.blocked_codes
             emitted_codes.extend(blocked_codes)
@@ -133,6 +156,16 @@ class Pipeline:
                 v.message for v in outcome.blocked
             ) or "execution failed before any state change"
 
+        # A repair budget spent without resolving the failure is a legitimate
+        # outcome — recorded as R01 rather than hidden, because "we tried twice
+        # and stopped" is information a reviewer needs.
+        if (
+            self.system.max_repairs
+            and len(result.attempts) > self.system.max_repairs
+            and blocked_codes
+        ):
+            emitted_codes.append("T19_REPAIR_BUDGET_EXHAUSTED")
+
         final_plan = plan or Plan()
         records = outcome.records if outcome is not None else []
         advisory = None
@@ -145,6 +178,7 @@ class Pipeline:
                 ],
             )
 
+        verification_started = time.perf_counter()
         verdict, kpis = verifier.verify(
             oracle=task.oracle,
             plan=final_plan,
@@ -154,6 +188,8 @@ class Pipeline:
             emitted_codes=emitted_codes,
             advisory=advisory,
         )
+        verification_ms = (time.perf_counter() - verification_started) * 1000
+
         if not self.system.verify_state:
             state_layer = verdict.layer("state_transition")
             if state_layer is not None:
@@ -178,6 +214,10 @@ class Pipeline:
         result.plan_success = bool(kpis["plan_success"])
         result.state_transition_ok = bool(kpis["state_transition_ok"])
         result.clarification_correct = kpis["clarification_correct"]
+        result.planning_ms = planning_ms
+        result.execution_ms = execution_ms
+        result.verification_ms = verification_ms
+        result.repair_ms = repair_ms
         result.latency_ms = (time.perf_counter() - started) * 1000
         result.input_tokens = self.backend.usage.input_tokens
         result.output_tokens = self.backend.usage.output_tokens

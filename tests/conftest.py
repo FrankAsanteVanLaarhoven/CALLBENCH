@@ -28,5 +28,5 @@ def catalogue():
 def suite() -> dict[str, list]:
     return {
         partition: generate_partition(partition, SMALL)
-        for partition in ("easy", "medium", "hard", "adversarial", "hidden")
+        for partition in ("public", "validation", "hidden", "adversarial", "stress")
     }

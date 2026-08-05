@@ -322,6 +322,20 @@ class Catalogue:
         # tool name as presented -> canonical name, for oracle comparison
         self._canonical = canonical
         self._alias = {v: k for k, v in canonical.items()}
+        # Validators are cached on the instance rather than in a module-level
+        # registry, so a catalogue constructed at runtime — a mutation, a
+        # future domain pack — validates without being registered first.
+        self._validators: dict[str, Any] = {}
+
+    def validator(self, tool: str) -> Any:
+        from jsonschema import Draft202012Validator
+
+        if tool not in self._validators:
+            self._validators[tool] = Draft202012Validator(
+                self.spec(tool).input_schema,
+                format_checker=Draft202012Validator.FORMAT_CHECKER,
+            )
+        return self._validators[tool]
 
     def __contains__(self, tool: str) -> bool:
         return tool in self._specs
@@ -349,6 +363,15 @@ class Catalogue:
     def presented(self, canonical_name: str) -> str:
         """Map a canonical name to how this catalogue presents it."""
         return self._alias.get(canonical_name, canonical_name)
+
+    def canonical_arguments(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Translate presented argument names to the simulator's names.
+
+        Identity for every shipped catalogue. Mutation testing overrides it,
+        so that respelling a parameter changes what the *agent* must read
+        without changing what the simulator means by correct.
+        """
+        return arguments
 
     def as_prompt_payload(self) -> list[dict[str, Any]]:
         """The catalogue exactly as the agent sees it. No side-effect hints."""

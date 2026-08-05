@@ -1,30 +1,36 @@
 # Methodology
 
-This document is the public specification of how CallBench-Email produces a
-number. It is written so that a reviewer can decide whether to believe one.
+This document is the public specification of how CallBench produces a number.
+It is written so that a reviewer can decide whether to believe one.
+
+CallBench is a **verification-centric** benchmark: the object of study is the
+whole pipeline that decides whether an autonomous agent is safe to deploy, not
+the single arrow from prompt to tool call. Email is the first domain; the
+verification stack, taxonomy, metrics, graphs and reproducibility machinery are
+domain-independent.
 
 ---
 
 ## 1. Scientific contributions
 
-**Benchmark.** A stratified dataset of direct, multi-step, conditional,
-ambiguous, adversarial and safety-sensitive email function-calling tasks, each
-with a deterministic execution oracle computed from the fixture it was
-generated against.
+**C1 — Deterministic execution benchmark.** 12,500 stratified tasks across five
+splits over a content-addressed mailbox simulator. Every oracle is computed
+from the fixture the generator built.
 
-**Systems.** A modular analyst–planner–guardian–executor–verifier architecture
-for autonomous tool use, with provenance-aware dependency resolution and
-bounded repair.
+**C2 — Provenance-aware execution model.** Deferred references plus a value
+lineage ledger, so a fabricated identifier is structurally detectable rather
+than statistically unlikely.
 
-**Verification.** A hybrid evaluation methodology combining JSON Schema
-validation, execution success, mailbox state-transition verification,
-provenance enforcement, privacy checks and semantic task completion — with
-model-based judgement explicitly demoted to advisory.
+**C3 — Four-layer verification framework.** Schema, execution,
+state-transition and semantic correctness, each independent and each
+authoritative; model-based judgement explicitly demoted to advisory.
 
-**Empirical.** A controlled, paired comparison of direct tool calling,
-structured-output prompting, single-agent planning, multi-agent orchestration,
-deterministic policy enforcement and verifier-guided repair, across difficulty
-levels.
+**C4 — Deterministic repair protocol.** Bounded retries over immutable
+execution traces, with a prohibition list that a repair may not cross.
+
+**C5 — Reproducible evaluation methodology.** Paired designs, exact McNemar
+tests, Wilson intervals, seeded bootstraps, a hierarchical taxonomy, mutation
+based generalisation testing, and per-run component fingerprints.
 
 The central question: can an autonomous agent transform a natural-language
 instruction into the correct, minimal, auditable and safe sequence of
@@ -191,10 +197,16 @@ reviewer-facing ledger.
 
 ### Contamination control
 
-The `hidden` partition is regenerated from the seed and **never committed**.
-It uses `catalogue_v4` and paraphrased prompts. A system that scores well on
-`easy`–`adversarial` and poorly on `hidden` has learned tool names rather than
-tool semantics.
+The `hidden` split is regenerated from the seed and **never committed**. It
+uses `catalogue_v4` and paraphrased prompts. A system that scores well on the
+other splits and poorly on `hidden` has learned tool names rather than tool
+semantics.
+
+Splits are **disjoint at the fixture level**, not merely at the seed. Salting a
+PRNG is not enough: templated prompts collide as strings across splits, and a
+reviewer is entitled to ask whether "held out" means anything. Each split draws
+from its own fixture-id range, so a public task and a validation task are never
+questions about the same mailbox.
 
 Paraphrases rewrite the *object* of a request, never the verb. Rewriting the
 verb as well would fold in a second, unrelated question — can the system infer
@@ -252,3 +264,118 @@ email-function tasks.
 | Agent pipeline | ≥90% schema-valid calls on development cases; zero fabricated identifiers | **met under the reference planner**; unverified against a model backend |
 | Dataset | ≥1,000 cases; inter-annotator agreement >0.85 on tool-chain labels; every destructive case has a safety or clarification oracle | **partially met** — 2,000 committed cases and every destructive case has a clarification oracle; **inter-annotator agreement is unmeasured**, because no human annotation pass has been run |
 | Benchmark and release | Reproducible command; machine-readable results; HTML report; public methodology; hidden partition held out | **met** for the harness; the release gate above is **not** met and no SOTA claim is made |
+
+
+---
+
+## 11. Splits and tiers
+
+Two independent axes.
+
+**Splits** decide who may see a task: `public` (development), `validation`
+(tuning, disjoint draw), `hidden` (contamination control, never committed),
+`adversarial` (safety), `stress` (dense mailboxes, zero efficiency slack).
+2,500 tasks each; 12,500 total.
+
+**Tiers** decide what a task is: `easy`, `medium`, `hard`, `adversarial`,
+`stress`. Every split reports a tier breakdown, so a mixed split is still
+analysable by difficulty.
+
+Keeping the axes separate is what stops `adversarial` from being counted once
+as a split and again as a difficulty stratum.
+
+---
+
+## 12. Execution and provenance graphs
+
+Each case can emit an execution DAG over the decision spine — request, intent,
+entities, dependencies, plan, gate, each executed call, each verification
+layer, ledger — with a value-level **provenance overlay**: every governed
+identifier or address is a node, edged from the step that produced it to every
+field that consumed it, and on to the mailbox resources that changed.
+
+This makes C2 checkable by inspection rather than by trusting a counter: **a
+value node with no inbound `produced` edge is a fabrication.** The document is
+JSON with a Mermaid rendering alongside, so it is reviewable without tooling.
+
+Graphs are *sampled* on a full sweep (`--graphs N`) rather than written for
+every case — tens of thousands of files is an artefact nobody opens — and the
+sample size is printed so a sample is never mistaken for a census.
+
+---
+
+## 13. Mutation testing and tool generalisation
+
+A benchmark with a fixed tool catalogue measures how well a system has fitted
+that catalogue. Mutation testing perturbs the tool surface one axis at a time,
+holding task, fixture and oracle constant:
+
+| Operator | Preserves meaning |
+|---|---|
+| `rename_tools`, `rename_parameters`, `reorder_properties` | yes |
+| `strip_descriptions`, `adversarial_descriptions` | no |
+| `require_optional_field`, `remove_optional_field` | no |
+
+The **Tool Generalisation score** averages retention over the
+semantics-preserving operators only. Averaging in the others would conflate
+"cannot read a renamed tool" with "correctly refused to follow a misleading
+description" — opposite behaviours that must not cancel.
+
+The simulator is never mutated. A respelled parameter is translated back to the
+canonical name at the executor boundary, so a mutation changes what the *agent*
+must read without changing what *correct* means.
+
+---
+
+## 14. Latency, cost and the Trust Score
+
+Accuracy alone does not decide deployability.
+
+**Latency** is reported per stage (planning, execution, verification, repair)
+as a median, with p95 on the total. Agent latency is long-tailed by
+construction — one repair doubles a case — and a mean hides exactly the tail an
+operator cares about.
+
+**Cost** is reported in tokens and USD per case and per *passed* case, against
+a cached price table with an explicit as-of date and command-line overrides. A
+run with no model calls reports no cost rather than `$0.0000`, which would
+invite comparison against a model run.
+
+**Trust Score** (tool 30%, schema 20%, execution 20%, safety 20%, provenance
+10%) is a smooth weighted rate for ranking many systems at a glance. It does
+not replace the composite score, which applies absolute penalties so a single
+catastrophic action cannot be diluted. Report both: where they disagree, the
+composite is describing a tail the Trust Score averaged away.
+
+---
+
+## 15. Reproducibility fingerprints
+
+Each run hashes the tool schemas, the taxonomy, the fixture generator (by
+sampled behaviour, not by source), the verifier and scoring weights, the system
+configurations, and the dataset bytes — reduced to a replay id.
+
+`callbench replay <id>` recomputes them against the current tree and reports
+which components moved, turning an irreproducibility dispute into a diff. Note
+what is deliberately *excluded*: wall-clock, hostname and absolute paths.
+Including them would make every run irreproducible by definition.
+
+The simulator is hashed by **behaviour** rather than source, so a refactor that
+preserves every mailbox does not invalidate prior runs — and a "harmless"
+change that silently alters one does.
+
+---
+
+## 16. Roadmap
+
+| Version | Scope |
+|---|---|
+| v1.0 | Email. Deterministic execution, four-layer verification, five splits, mutation testing, replay. |
+| v2.0 | Calendar, Filesystem, GitHub, Slack — sharing the verification core. |
+| v3.0 | Multi-domain workflows spanning several tool ecosystems per task. |
+| v4.0 | Multi-agent collaboration with shared memory and coordinated execution. |
+| v5.0 | Long-horizon enterprise tasks with human oversight and end-to-end provenance. |
+
+The domain-specific surface is the simulator, the catalogue and the generators.
+Everything else is domain-independent by construction, which is what makes v2 a
+matter of adding a package rather than rewriting the harness.

@@ -3,14 +3,17 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "callbench-email"
+name = "callbench"
 version = "0.1.0"
-description = "A benchmark and evaluation framework for autonomous function-calling agents over email workflows"
+description = "A verification-centric benchmark for autonomous function-calling agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [{ name = "Frank Asante Van Laarhoven", email = "frankleroyvan@gmail.com" }]
-keywords = ["benchmark", "function-calling", "agents", "evaluation", "tool-use", "mcp"]
+keywords = [
+    "benchmark", "function-calling", "agents", "evaluation", "tool-use",
+    "verification", "provenance", "mcp",
+]
 
 dependencies = [
     "jsonschema>=4.21",

@@ -109,7 +109,7 @@ class AnthropicBackend:
         except ImportError as exc:  # pragma: no cover - environment dependent
             raise BackendUnavailable(
                 "the anthropic SDK is not installed. Install it with "
-                "`pip install 'callbench-email[anthropic]'`, or run the benchmark "
+                "`pip install 'callbench[anthropic]'`, or run the benchmark "
                 "offline with `--model reference`."
             ) from exc
         if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):

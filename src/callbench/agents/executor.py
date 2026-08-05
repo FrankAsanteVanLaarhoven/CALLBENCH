@@ -111,11 +111,12 @@ class Executor:
                 after_hash=self.store.state_hash(),
             )
 
+        payload = self.catalogue.canonical_arguments(arguments)
         before_snapshot = self.store.snapshot()
         before_hash = self.store.state_hash()
         started = time.perf_counter()
         try:
-            result = invoke(self.store, canonical, arguments, self.current_time)
+            result = invoke(self.store, canonical, payload, self.current_time)
             ok, error = True, None
         except ToolError as exc:
             result, ok, error = None, False, str(exc)

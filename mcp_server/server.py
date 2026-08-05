@@ -82,7 +82,7 @@ async def _serve_mcp(server: SimulatedMailboxServer) -> int:  # pragma: no cover
     except ImportError:
         print(
             "the `mcp` package is not installed; install it with "
-            "`pip install 'callbench-email[mcp]'`, or use --stdio-json for the "
+            "`pip install 'callbench[mcp]'`, or use --stdio-json for the "
             "dependency-free line protocol",
             file=sys.stderr,
         )

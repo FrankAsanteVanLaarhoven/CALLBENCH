@@ -164,13 +164,16 @@ class Guardian:
             )
 
         if self.config.schema_validation:
-            for code, message in schema_errors(step.tool, resolved_arguments, self.catalogue.name):
+            for code, message in schema_errors(step.tool, resolved_arguments, self.catalogue):
                 violations.append(Violation(code, message, step.step_id))
 
         if self.config.provenance:
             spec = self.catalogue.spec(step.tool)
             for field, value in constrained_values(resolved_arguments):
                 if ledger.supports(value):
+                    # Record the hop so the value's lineage can be printed
+                    # later: produced by step N, consumed by this field.
+                    ledger.record_use(step.step_id or "?", field, value)
                     continue
                 code = (
                     "T06_WRONG_RECIPIENT"

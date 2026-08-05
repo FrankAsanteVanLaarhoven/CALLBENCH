@@ -19,7 +19,7 @@ from rich.text import Text
 from ..metrics import SystemMetrics
 from ..metrics.stats import Interval
 from ..orchestration.runner import RunReport
-from ..taxonomy import BY_CODE, SAFETY_CRITICAL
+from ..taxonomy import BY_CODE, SAFETY_CRITICAL, describe, sort_key
 from .theme import HAIRLINE, THEME, label, rate_style
 
 #: Width used when output is redirected. Rich would otherwise fall back to 80
@@ -99,6 +99,7 @@ def results_table(console: Console, report: RunReport) -> None:
     table.add_column("FABRICATE", justify="right")
     table.add_column("UNSAFE", justify="right")
     table.add_column("CALLS", justify="right", style="cb.muted")
+    table.add_column("TRUST", justify="right")
     table.add_column("SCORE", justify="right")
 
     for metrics in report.systems:
@@ -112,6 +113,7 @@ def results_table(console: Console, report: RunReport) -> None:
             _pct(metrics.rates.get("fabrication_rate"), higher_is_better=False),
             _pct(metrics.rates.get("unsafe_action_rate"), higher_is_better=False),
             f"{metrics.mean_tool_calls:5.2f}",
+            _trust(metrics),
             _score(metrics.composite),
         )
 
@@ -121,7 +123,9 @@ def results_table(console: Console, report: RunReport) -> None:
     console.print(
         Text(
             "  rates are point estimates; 95% Wilson intervals in results.json. "
-            "score is safety-weighted, 0–100.",
+            "trust is a weighted rate for ranking; score is safety-weighted with "
+            "absolute penalties. Where they disagree, the score is describing a "
+            "tail the trust score averaged away.",
             style="cb.dim",
         )
     )
@@ -165,14 +169,19 @@ def taxonomy_table(console: Console, report: RunReport) -> None:
         header_style="cb.label", border_style="cb.rule",
     )
     table.add_column("CODE", style="cb.value", no_wrap=True)
+    table.add_column("FAMILY", style="cb.dim", no_wrap=True)
     table.add_column("FAILURE", style="cb.muted", no_wrap=True)
     for metrics in report.systems:
         table.add_column(_abbrev(metrics.system), justify="right")
 
-    for code in sorted(codes, key=lambda c: (c not in SAFETY_CRITICAL, c)):
+    for code in sorted(codes, key=sort_key):
         spec = BY_CODE.get(code)
         style = "cb.crit" if code in SAFETY_CRITICAL else "cb.value"
-        row: list[Any] = [Text(code, style=style), spec.title if spec else "—"]
+        row: list[Any] = [
+            Text(spec.family_code if spec else code, style=style),
+            spec.family.value if spec else "—",
+            spec.title if spec else "—",
+        ]
         for metrics in report.systems:
             count = codes[code].get(metrics.system, 0)
             row.append(Text(str(count) if count else "·", style="cb.dim" if not count else style))
@@ -181,7 +190,13 @@ def taxonomy_table(console: Console, report: RunReport) -> None:
     console.print()
     console.print(Text(label("failure taxonomy"), style="cb.label"))
     console.print(table)
-    console.print(Text("  magenta codes are safety-critical", style="cb.dim"))
+    console.print(
+        Text(
+            "  magenta codes are safety-critical. stable ids (T01…) are in results.json; "
+            "family codes are shown here because a hierarchy is what a reader holds in mind.",
+            style="cb.dim",
+        )
+    )
 
 
 def comparison_table(console: Console, report: RunReport) -> None:
@@ -256,6 +271,153 @@ def partition_table(console: Console, report: RunReport) -> None:
     console.print()
     console.print(Text(label("pass rate by partition"), style="cb.label"))
     console.print(table)
+
+
+def operations_table(console: Console, report: RunReport) -> None:
+    """Latency and cost. An architecture is not free, and the table says so."""
+    table = Table(
+        box=HAIRLINE, show_edge=False, pad_edge=False,
+        header_style="cb.label", border_style="cb.rule",
+    )
+    table.add_column("SYSTEM", style="cb.value", no_wrap=True)
+    table.add_column("PLAN ms", justify="right")
+    table.add_column("EXEC ms", justify="right")
+    table.add_column("VERIFY ms", justify="right")
+    table.add_column("REPAIR ms", justify="right")
+    table.add_column("TOTAL ms", justify="right")
+    table.add_column("P95 ms", justify="right")
+    table.add_column("RETRIES", justify="right", style="cb.muted")
+    table.add_column("USD/CASE", justify="right")
+
+    priced = False
+    for metrics in report.systems:
+        lat = metrics.latency
+        cost = metrics.cost
+        if cost is not None and cost.priced:
+            priced = True
+        table.add_row(
+            metrics.system,
+            f"{lat.planning_ms:8.2f}" if lat else "·",
+            f"{lat.execution_ms:8.2f}" if lat else "·",
+            f"{lat.verification_ms:8.2f}" if lat else "·",
+            f"{lat.repair_ms:8.2f}" if lat else "·",
+            f"{lat.total_ms:8.2f}" if lat else "·",
+            f"{lat.p95_total_ms:8.2f}" if lat else "·",
+            f"{metrics.retry_rate * 100:5.1f}%",
+            (f"{cost.usd_per_case:.5f}" if cost and cost.priced else Text("n/a", style="cb.dim")),
+        )
+
+    console.print()
+    console.print(Text(label("latency and cost"), style="cb.label"))
+    console.print(table)
+    console.print(
+        Text(
+            "  latency is median per stage, with p95 on the total. "
+            + ("cost uses the cached price table; override with --price-input/--price-output."
+               if priced else "no model tokens were consumed, so there is no cost to report."),
+            style="cb.dim",
+        )
+    )
+
+
+def tier_table(console: Console, report: RunReport) -> None:
+    tiers = sorted({t for m in report.systems for t in m.by_tier})
+    if len(tiers) < 2:
+        return
+    table = Table(
+        box=HAIRLINE, show_edge=False, pad_edge=False,
+        header_style="cb.label", border_style="cb.rule",
+    )
+    table.add_column("SYSTEM", style="cb.value", no_wrap=True)
+    for tier in tiers:
+        table.add_column(tier.upper(), justify="right")
+
+    for metrics in report.systems:
+        row: list[Any] = [metrics.system]
+        for tier in tiers:
+            stats = metrics.by_tier.get(tier)
+            row.append(
+                Text(f"{stats['pass_rate'] * 100:5.1f}%", style=rate_style(stats["pass_rate"]))
+                if stats else Text("·", style="cb.dim")
+            )
+        table.add_row(*row)
+
+    console.print()
+    console.print(Text(label("pass rate by difficulty tier"), style="cb.label"))
+    console.print(table)
+    console.print(
+        Text("  tiers cut across splits: a mixed split is still analysable by difficulty",
+             style="cb.dim")
+    )
+
+
+def fingerprint_notice(console: Console, report: RunReport) -> None:
+    if not report.fingerprint:
+        return
+    console.print()
+    console.print(Text(label("reproducibility"), style="cb.label"))
+    console.print(
+        Text(f"  replay id  {report.fingerprint.get('replay_id', '?')}", style="cb.accent")
+    )
+    components = report.fingerprint.get("components", {})
+    console.print(
+        Text(
+            "  " + "  ".join(f"{k}={v}" for k, v in sorted(components.items())),
+            style="cb.dim",
+        )
+    )
+    console.print(
+        Text("  callbench replay <replay id> re-checks these against the current tree",
+             style="cb.dim")
+    )
+
+
+def mutation_table(console: Console, report: Any) -> None:
+    """Render a :class:`callbench.mutations.GeneralisationReport`."""
+    table = Table(
+        box=HAIRLINE, show_edge=False, pad_edge=False,
+        header_style="cb.label", border_style="cb.rule",
+    )
+    table.add_column("MUTATION", style="cb.value", no_wrap=True)
+    table.add_column("MEANING", style="cb.dim", no_wrap=True)
+    table.add_column("BASELINE", justify="right")
+    table.add_column("MUTATED", justify="right")
+    table.add_column("RETENTION", justify="right")
+    table.add_column("UNSAFE", justify="right")
+    table.add_column("TOP FAILURE", style="cb.muted", no_wrap=True)
+
+    for result in report.results:
+        top = next(iter(result.top_codes), None)
+        table.add_row(
+            result.mutation,
+            "preserved" if result.preserves_meaning else "changed",
+            f"{result.baseline_pass_rate * 100:6.1f}%",
+            f"{result.mutated_pass_rate * 100:6.1f}%",
+            Text(
+                f"{result.retention * 100:6.1f}%",
+                style=rate_style(result.retention) if result.preserves_meaning else "cb.muted",
+            ),
+            Text(
+                f"{result.unsafe_rate * 100:6.1f}%",
+                style=rate_style(result.unsafe_rate, higher_is_better=False),
+            ),
+            describe(top).family_code if top else "·",
+        )
+
+    console.print()
+    console.print(Text(label("tool generalisation"), style="cb.label"))
+    console.print(table)
+    console.print()
+    console.print(
+        Text(f"  TOOL GENERALISATION SCORE  {report.score:5.1f}", style="cb.accent")
+    )
+    console.print(
+        Text(
+            "  averaged over semantics-preserving mutations only: a drop there cannot be "
+            "excused by the task having become harder, because it has not.",
+            style="cb.dim",
+        )
+    )
 
 
 def notes_notice(console: Console, report: RunReport) -> None:
@@ -336,10 +498,13 @@ def render_report(console: Console, report: RunReport) -> None:
     results_table(console, report)
     interval_table(console, report)
     partition_table(console, report)
+    tier_table(console, report)
+    operations_table(console, report)
     taxonomy_table(console, report)
     comparison_table(console, report)
     notes_notice(console, report)
     skipped_notice(console, report)
+    fingerprint_notice(console, report)
     console.print()
 
 
@@ -364,6 +529,14 @@ def _interval(interval: Interval | None, *, scale: float = 100.0, decimals: int 
         f"[{interval.low * scale:.{decimals}f}, {interval.high * scale:.{decimals}f}]",
         style="cb.value",
     )
+
+
+def _trust(metrics: SystemMetrics) -> Text:
+    if metrics.trust is None:
+        return Text("·", style="cb.dim")
+    value = metrics.trust.score
+    style = "cb.ok" if value >= 90 else "cb.warn" if value >= 70 else "cb.bad"
+    return Text(f"{value:6.1f}", style=style)
 
 
 def _score(interval: Interval | None) -> Text:

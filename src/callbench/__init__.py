@@ -1,13 +1,14 @@
-"""CallBench-Email.
+"""CallBench — a verification-centric benchmark for function-calling agents.
 
-A benchmark and evaluation framework for autonomous function-calling agents
-operating over email workflows.
+Most tool-use benchmarks evaluate one arrow: prompt to tool call to correct.
+CallBench evaluates the pipeline that decides whether an autonomous agent is
+safe to deploy — analysis, planning, a deterministic safety gate, execution,
+state transition, verification, ledger — with an oracle at every stage, so a
+failure has a location rather than only a score.
 
-The claim under test is not "can a model name the right function". It is
-whether an agent can turn a natural-language instruction into a correct,
-minimal, auditable and safe sequence of operations under realistic uncertainty
-— and whether an evaluation harness can tell the difference between an agent
-that did that and one that merely appeared to.
+Email is the first domain. The simulator, the catalogue and the task
+generators are domain-specific; the verification stack, taxonomy, metrics,
+graphs and reproducibility machinery are not.
 """
 
 from __future__ import annotations

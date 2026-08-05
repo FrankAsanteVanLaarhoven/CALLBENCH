@@ -13,9 +13,13 @@ from typing import Any
 
 from ..contracts import CaseResult
 from ..datasets.task import Task
-from ..taxonomy import SAFETY_CRITICAL
+from ..taxonomy import SAFETY_CRITICAL, family_of
+from .cost import CostBreakdown, LatencyBreakdown
+from .cost import cost as cost_of
+from .cost import latency as latency_of
 from .score import score_case
 from .stats import Interval, bootstrap_ci, wilson_interval
+from .trust import TrustScore, trust_score
 
 PRIMARY_KPIS: tuple[str, ...] = (
     "tool_selection_accuracy",
@@ -42,7 +46,16 @@ class SystemMetrics:
     retry_rate: float = 0.0
     clarification_precision: float | None = None
     taxonomy: dict[str, int] = field(default_factory=dict)
+    #: Failure counts rolled up to family (planning/schema/execution/state/
+    #: safety/repair), which is the level most readers reason at.
+    taxonomy_by_family: dict[str, int] = field(default_factory=dict)
     by_partition: dict[str, dict[str, float]] = field(default_factory=dict)
+    #: Difficulty breakdown *within* the split, so a mixed split stays
+    #: analysable by tier.
+    by_tier: dict[str, dict[str, float]] = field(default_factory=dict)
+    trust: TrustScore | None = None
+    latency: LatencyBreakdown | None = None
+    cost: CostBreakdown | None = None
     #: task_id -> passed, retained so paired tests can be run across systems.
     outcomes: dict[str, bool] = field(default_factory=dict)
     unsafe_outcomes: dict[str, bool] = field(default_factory=dict)
@@ -61,12 +74,23 @@ class SystemMetrics:
             "retry_rate": self.retry_rate,
             "clarification_precision": self.clarification_precision,
             "taxonomy": self.taxonomy,
+            "taxonomy_by_family": self.taxonomy_by_family,
             "by_partition": self.by_partition,
+            "by_tier": self.by_tier,
+            "trust": self.trust.to_dict() if self.trust else None,
+            "latency": self.latency.to_dict() if self.latency else None,
+            "cost": self.cost.to_dict() if self.cost else None,
         }
 
 
 def aggregate(
-    system: str, model: str, results: list[CaseResult], tasks: dict[str, Task]
+    system: str,
+    model: str,
+    results: list[CaseResult],
+    tasks: dict[str, Task],
+    *,
+    price_input: float | None = None,
+    price_output: float | None = None,
 ) -> SystemMetrics:
     metrics = SystemMetrics(system=system, model=model, n=len(results))
     if not results:
@@ -107,6 +131,11 @@ def aggregate(
         counter.update(result.error_codes)
     metrics.taxonomy = dict(sorted(counter.items()))
 
+    families: Counter[str] = Counter()
+    for code, count in counter.items():
+        families[family_of(code).value] += count
+    metrics.taxonomy_by_family = dict(sorted(families.items()))
+
     partitions: dict[str, list[CaseResult]] = {}
     for result in results:
         partitions.setdefault(result.partition, []).append(result)
@@ -119,6 +148,22 @@ def aggregate(
         }
         for name, group in sorted(partitions.items())
     }
+
+    tiers: dict[str, list[CaseResult]] = {}
+    for result in results:
+        tiers.setdefault(result.tier, []).append(result)
+    metrics.by_tier = {
+        name: {
+            "n": float(len(group)),
+            "pass_rate": sum(1 for r in group if r.passed) / len(group),
+            "unsafe_rate": sum(1 for r in group if r.unsafe) / len(group),
+        }
+        for name, group in sorted(tiers.items())
+    }
+
+    metrics.trust = trust_score(results)
+    metrics.latency = latency_of(results)
+    metrics.cost = cost_of(model, results, price_input=price_input, price_output=price_output)
 
     metrics.outcomes = {r.task_id: r.passed for r in results}
     metrics.unsafe_outcomes = {r.task_id: r.unsafe for r in results}

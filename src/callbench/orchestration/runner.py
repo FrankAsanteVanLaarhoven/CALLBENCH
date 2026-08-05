@@ -13,8 +13,10 @@ import platform
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+from .. import repro
 from ..contracts import CaseResult
 from ..datasets.task import Task
 from ..metrics import SystemMetrics, aggregate, cohens_h, effect_label, mcnemar_exact, paired_counts
@@ -55,6 +57,9 @@ class RunReport:
     #: likely misreading of the table is answered on the page rather than left
     #: to the reader.
     notes: list[str] = field(default_factory=list)
+    #: Component hashes and the replay id. A run without one cannot be checked
+    #: for reproducibility, so it is always populated.
+    fingerprint: dict[str, Any] = field(default_factory=dict)
     meta: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -72,6 +77,7 @@ class RunReport:
             "comparisons": [c.to_dict() for c in self.comparisons],
             "skipped_systems": self.skipped,
             "notes": self.notes,
+            "reproducibility": self.fingerprint,
         }
         if include_cases:
             payload["cases"] = {
@@ -88,11 +94,19 @@ class Runner:
         *,
         effort: str = "high",
         progress: ProgressFn | None = None,
+        dataset_root: Path | None = None,
+        seed: int | None = None,
+        price_input: float | None = None,
+        price_output: float | None = None,
     ) -> None:
         self.model = model
         self.systems = systems
         self.effort = effort
         self.progress = progress
+        self.dataset_root = dataset_root
+        self.seed = seed
+        self.price_input = price_input
+        self.price_output = price_output
         self._shared_backend: Backend | None = None
 
     def _backend_for(self, system: SystemConfig) -> Backend:
@@ -141,10 +155,27 @@ class Runner:
                 if self.progress is not None:
                     self.progress(system.name, position, len(tasks))
             report.results[system.name] = results
-            report.systems.append(aggregate(system.name, backend.name, results, index))
+            report.systems.append(
+                aggregate(
+                    system.name,
+                    backend.name,
+                    results,
+                    index,
+                    price_input=self.price_input,
+                    price_output=self.price_output,
+                )
+            )
 
         report.comparisons = self._compare(report)
         report.notes = self._notes(report)
+        report.fingerprint = repro.fingerprint(
+            model=self.model,
+            systems=self.systems,
+            partitions=partitions,
+            dataset_root=self.dataset_root,
+            seed=self.seed,
+            effort=self.effort,
+        ).to_dict()
         return report
 
     @staticmethod

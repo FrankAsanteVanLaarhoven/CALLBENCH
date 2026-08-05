@@ -1,4 +1,4 @@
-# CallBench-Email
+# CallBench
 
 Read `docs/METHODOLOGY.md` before changing anything under `src/callbench/datasets/`,
 `src/callbench/verification/`, or `src/callbench/metrics/`. Those three define
@@ -26,10 +26,12 @@ numbers whether or not the tests still pass.
 ## Commands
 
     make check       # the whole gate: ruff, mypy --strict, pytest
-    make dataset     # regenerate every partition from the seed (500 each)
+    make dataset     # regenerate every split from the seed (2500 each)
     make bench       # baselines against the reference planner -> reports/
     make bench-all   # baselines and ablations
-    make doctor      # harness invariants: determinism, coverage, simulation-only
+    make mutate      # tool generalisation under catalogue mutation
+    make replay      # check the last run against the current tree
+    make doctor      # harness invariants
     make clean       # remove reports/ and __pycache__
 
 `callbench inspect <task_id>` is the debugger. Use it before changing anything:
@@ -62,9 +64,19 @@ the agent.
   towards the unsafe-action rate, or a guard that guards scores worse than no
   guard at all. Fabrication rate is the opposite: it counts what was *emitted*,
   repaired or not.
-- **The hidden partition paraphrases the object, never the verb.** Rewriting
-  the verb too would fold in a second question and make a score drop
-  unattributable.
+- **The hidden split paraphrases the object, never the verb.** Rewriting the
+  verb too would fold in a second question and make a score drop unattributable.
+- **Splits must stay disjoint at the fixture level.** Salting the PRNG is not
+  enough; templated prompts collide as strings. Each split owns a fixture-id
+  range, and `tests/regression` asserts it.
+- **A missing state change is not an unsafe action.** `ST01` (a wrong change
+  happened) is safety-critical; `ST03` (the right change did not) is not.
+  Conflating them makes a blocked agent look dangerous.
+- **Taxonomy ids append; they never renumber.** Published results cite `T01`…
+  Family codes (`SF01`) are a presentation layer over that stable spine.
+- **Never mutate the simulator in mutation testing.** A respelled parameter is
+  translated back at the executor boundary, so the mutation changes what the
+  agent must read, not what correct means.
 
 ## Adding a task family
 

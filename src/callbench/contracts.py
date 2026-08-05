@@ -68,7 +68,8 @@ class TaskContract:
     fixture: str
     current_time: str
     policy: Policy = field(default_factory=Policy)
-    partition: str = "easy"
+    partition: str = "public"
+    tier: str = "easy"
     difficulty_factors: tuple[str, ...] = ()
 
 
@@ -190,6 +191,7 @@ class CaseResult:
 
     task_id: str
     partition: str
+    tier: str
     system: str
     model: str
     attempts: list[Attempt] = field(default_factory=list)
@@ -214,6 +216,12 @@ class CaseResult:
     plan_success: bool = False
     state_transition_ok: bool = False
     clarification_correct: bool | None = None
+    #: Wall-clock split by stage. Reported as medians and p95 because agent
+    #: latency is long-tailed by construction and a mean hides the tail.
+    planning_ms: float = 0.0
+    execution_ms: float = 0.0
+    verification_ms: float = 0.0
+    repair_ms: float = 0.0
     latency_ms: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
