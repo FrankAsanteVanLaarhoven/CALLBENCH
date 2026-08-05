@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.env
+
+# Contamination control: the hidden evaluation partition is regenerated
+# deterministically from a seed and is never committed. See docs/METHODOLOGY.md.
+datasets/hidden/
+
+# Run artefacts. Committed reports live in docs/, not here.
+reports/*
+!reports/.gitkeep

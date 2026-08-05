@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "callbench-email"
+version = "0.1.0"
+description = "A benchmark and evaluation framework for autonomous function-calling agents over email workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Frank Asante Van Laarhoven", email = "frankleroyvan@gmail.com" }]
+keywords = ["benchmark", "function-calling", "agents", "evaluation", "tool-use", "mcp"]
+
+dependencies = [
+    "jsonschema>=4.21",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40"]
+mcp = ["mcp>=1.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "mypy>=1.9", "ruff>=0.4"]
+
+[project.scripts]
+callbench = "callbench.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+callbench = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "contract: tool-schema conformance tests",
+    "adversarial: injection, privacy and destructive-scope tests",
+    "regression: frozen-output regression tests",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["callbench"]
+mypy_path = "src"
+
+# The Anthropic SDK is an optional extra; the offline harness must type-check
+# without it installed.
+[[tool.mypy.overrides]]
+module = ["anthropic.*", "mcp.*"]
+ignore_missing_imports = true
