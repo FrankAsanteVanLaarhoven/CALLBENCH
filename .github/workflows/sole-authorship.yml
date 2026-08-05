@@ -31,7 +31,11 @@ jobs:
       # The guard itself is regression-tested: every violation class is
       # exercised against a throwaway repository, so a check that has gone
       # blind fails here rather than passing quietly.
+      # --noconftest keeps this independent of the benchmark package: the
+      # authorship boundary must not stop working because the project failed
+      # to install. The test defines its own fixtures and imports nothing from
+      # callbench.
       - name: Verify the guard can still fail
         run: |
           python -m pip install --quiet pytest
-          python -m pytest tests/regression/test_authorship_enforcement.py -q
+          python -m pytest --noconftest tests/regression/test_authorship_enforcement.py -q
