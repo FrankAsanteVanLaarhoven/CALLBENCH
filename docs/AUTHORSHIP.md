@@ -83,26 +83,22 @@ git config core.hooksPath .githooks
 `make check` runs the content guard, so the policy is part of the ordinary
 build gate rather than a separate discipline.
 
-### Historical exception
+### History
 
-Commits made before this policy was adopted contain a prohibited trailer. The
-repository is public, so those hashes are preserved rather than rewritten;
-rewriting published history would break any existing clone or reference.
-`AUTHORSHIP_SINCE` pins the enforcement cutoff for the history guard. Set the
-repository variable to:
-
-    AUTHORSHIP_SINCE = 6ef7546
-
-which is the last commit made before the policy was adopted. Everything from
-that commit forward is enforced; everything before it is preserved as
-published.
-
-Verify locally:
+The full commit history satisfies this policy. It is verified without a cutoff:
 
 ```bash
-AUTHORSHIP_SINCE=6ef7546 bash scripts/check_git_history.sh
+bash scripts/check_git_history.sh
 ```
 
-Rewriting the earlier hashes remains available and requires explicit approval
-from Frank Van Laarhoven. The repository is public, so a rewrite would break
-any existing clone or reference; that trade is a decision, not a default.
+Commits made before the policy was adopted carried a prohibited trailer and an
+inconsistent author identity. They were rewritten once, with explicit approval
+from Frank Van Laarhoven, before the repository acquired downstream consumers:
+attribution trailers were stripped from commit messages and the author identity
+was normalised. The rewrite was deliberately **message- and identity-scoped** —
+a blanket text replacement across blobs would have corrupted permitted
+technical references such as model identifiers, the provider SDK import and the
+pricing table.
+
+`AUTHORSHIP_SINCE` remains available in `scripts/check_git_history.sh` for any
+future repository that inherits history it cannot rewrite. It is unset here.

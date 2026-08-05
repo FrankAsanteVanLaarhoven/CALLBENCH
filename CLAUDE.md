@@ -18,7 +18,8 @@ project.
    `docs/AUTHORSHIP.md`, which is the one file permitted to contain them.
 3. Do not mention an AI provider or coding assistant in commit subjects or
    commit bodies.
-4. Use only the configured human Git author identity.
+4. Use only the configured human Git author identity:
+   `Frank Van Laarhoven <frankleroyvan@gmail.com>`.
 5. Before committing, inspect the complete commit message and remove
    prohibited attribution.
 6. Before pushing, inspect recent commits for prohibited trailers or branding.

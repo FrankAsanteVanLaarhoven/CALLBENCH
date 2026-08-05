@@ -2,4 +2,5 @@
 set -eu
 
 python3 scripts/check_authorship_policy.py \
+  --expected-email frankleroyvan@gmail.com \
   --commit-message-file "$1"

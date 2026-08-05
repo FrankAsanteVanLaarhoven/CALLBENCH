@@ -20,10 +20,7 @@ jobs:
       - name: Check repository content
         run: python scripts/check_authorship_policy.py --tree . --skip-identity
 
-      # Earlier history predates this policy and is deliberately preserved on a
-      # public repository. AUTHORSHIP_SINCE pins the cutoff so the policy is
-      # enforced from that commit forward without rewriting published hashes.
+      # Full history is enforced: no cutoff. AUTHORSHIP_SINCE stays supported in
+      # the script for a repository that inherits history it cannot rewrite.
       - name: Check Git history
-        env:
-          AUTHORSHIP_SINCE: ${{ vars.AUTHORSHIP_SINCE }}
         run: bash scripts/check_git_history.sh
