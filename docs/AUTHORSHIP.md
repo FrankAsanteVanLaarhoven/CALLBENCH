@@ -88,6 +88,21 @@ build gate rather than a separate discipline.
 Commits made before this policy was adopted contain a prohibited trailer. The
 repository is public, so those hashes are preserved rather than rewritten;
 rewriting published history would break any existing clone or reference.
-`AUTHORSHIP_SINCE` pins the enforcement cutoff for the history guard. Rewriting
-that history remains available and requires explicit approval from Frank Van
-Laarhoven.
+`AUTHORSHIP_SINCE` pins the enforcement cutoff for the history guard. Set the
+repository variable to:
+
+    AUTHORSHIP_SINCE = 6ef7546
+
+which is the last commit made before the policy was adopted. Everything from
+that commit forward is enforced; everything before it is preserved as
+published.
+
+Verify locally:
+
+```bash
+AUTHORSHIP_SINCE=6ef7546 bash scripts/check_git_history.sh
+```
+
+Rewriting the earlier hashes remains available and requires explicit approval
+from Frank Van Laarhoven. The repository is public, so a rewrite would break
+any existing clone or reference; that trade is a decision, not a default.
