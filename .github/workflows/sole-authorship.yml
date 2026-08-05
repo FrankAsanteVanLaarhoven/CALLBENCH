@@ -20,7 +20,18 @@ jobs:
       - name: Check repository content
         run: python scripts/enforce_sole_authorship.py --tree . --skip-identity
 
-      # Full history is enforced: no cutoff. AUTHORSHIP_SINCE stays supported in
-      # the script for a repository that inherits history it cannot rewrite.
-      - name: Check Git history
+      # The authoritative enforcement boundary. Local hooks can be bypassed
+      # (--no-verify, a clone that never set core.hooksPath, a push from
+      # another machine); this cannot. It fails on any commit whose author or
+      # committer is not the approved identity, and on any prohibited
+      # attribution trailer, over full history on every ref.
+      - name: Enforce sole authorship over full history
         run: bash scripts/enforce_history_authorship.sh
+
+      # The guard itself is regression-tested: every violation class is
+      # exercised against a throwaway repository, so a check that has gone
+      # blind fails here rather than passing quietly.
+      - name: Verify the guard can still fail
+        run: |
+          python -m pip install --quiet pytest
+          python -m pytest tests/regression/test_authorship_enforcement.py -q

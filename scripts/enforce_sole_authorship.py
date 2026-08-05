@@ -43,10 +43,16 @@ TEXT_SUFFIXES = {
 #: Paths exempt from the content scan because their whole purpose is to name
 #: the prohibited strings. Exempting the guard from itself is necessary; the
 #: policy document is exempt for the same reason.
+#: The only files exempt from the content scan, and only because their whole
+#: purpose is to name the prohibited tokens: the two guards, the workflow that
+#: runs them, and the regression test that proves they can still fail. Every
+#: other file — including the governance policy, which describes the rules in
+#: prose rather than quoting them — is scanned.
 SELF_REFERENTIAL = {
     "scripts/enforce_sole_authorship.py",
     "scripts/enforce_history_authorship.sh",
     ".github/workflows/sole-authorship.yml",
+    "tests/regression/test_authorship_enforcement.py",
 }
 
 

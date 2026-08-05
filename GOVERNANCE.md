@@ -61,6 +61,27 @@ policy is a build gate rather than a separate discipline.
 Expected identity: `Frank Van Laarhoven <frankleroyvan@gmail.com>`. Both hooks
 verify it, so an identity drift fails at commit time.
 
+### The authoritative boundary is CI, not the hooks
+
+Local hooks are a convenience and can be bypassed — `--no-verify`, a clone that
+never ran `git config core.hooksPath`, or a push from another machine. The
+history check in CI is the control that actually holds. It fails when **any**
+commit on **any** ref:
+
+- has an author or committer other than the approved identity; or
+- carries a prohibited attribution trailer.
+
+Both conditions are checked over full history on every push and pull request,
+and both are reported in a single run rather than stopping at the first
+finding.
+
+The guard is itself regression-tested (`tests/regression/test_authorship_enforcement.py`):
+each violation class is exercised against a throwaway repository, because an
+enforcement boundary that cannot fail enforces nothing. One such test exists
+for a specific defect — a `grep -q` in a pipeline under `set -o pipefail` made
+the trailer check pass silently when the offending commit was near the tip,
+which is precisely the commit that matters.
+
 ## History
 
 The full commit history satisfies this policy, verified without a cutoff:
