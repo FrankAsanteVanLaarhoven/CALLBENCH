@@ -128,3 +128,119 @@ def test_this_repository_satisfies_the_policy() -> None:
         ["bash", str(GUARD)], cwd=GUARD.parents[1], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+# --- Which refs count as ours -----------------------------------------------
+#
+# The guard audited `--all`, which on a `pull_request` event includes
+# `refs/pull/N/merge`: a merge preview GitHub synthesises, authored by the web
+# identity and committed by `GitHub <noreply@github.com>`. That would have
+# failed the first pull request ever opened against this repository, for a
+# commit nobody can fix. It never fired only because every commit so far went
+# straight to `main`.
+#
+# The exclusion has to stay exactly as narrow as it is. The first two tests
+# below are a pair, and neither means anything alone: the same commit is
+# ignored on a synthetic ref and caught on a real branch.
+
+
+def _forge_commit(repo: Path) -> str:
+    """An empty commit by an identity that is not ours, left unreferenced."""
+    _git(
+        repo,
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "Merge pull request #1",
+        GIT_AUTHOR_NAME="Someone Else",
+        GIT_AUTHOR_EMAIL="else@example.invalid",
+        GIT_COMMITTER_NAME="A Forge",
+        GIT_COMMITTER_EMAIL="noreply@forge.invalid",
+    )
+    sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    _git(repo, "reset", "-q", "--hard", "HEAD~1")
+    return sha
+
+
+def test_a_synthetic_pull_merge_ref_is_not_audited(repo: Path) -> None:
+    sha = _forge_commit(repo)
+    _git(repo, "update-ref", "refs/remotes/pull/1/merge", sha)
+
+    result = _run_guard(repo)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_the_same_commit_on_a_real_branch_is_still_caught(repo: Path) -> None:
+    """The control. Without it the test above passes on a guard that audits
+    nothing at all."""
+    sha = _forge_commit(repo)
+    _git(repo, "branch", "tainted", sha)
+
+    result = _run_guard(repo)
+
+    assert result.returncode == 1
+    assert "unapproved author or committer" in result.stderr
+
+
+def test_a_shallow_clone_is_refused(repo: Path, tmp_path: Path) -> None:
+    """`git clone --depth 1` has refs and one commit, so the guard would report
+    "history check passed" over a history it does not have. The workflow sets
+    `fetch-depth: 0`, but anyone running this locally may not have."""
+    shallow = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", "--no-local", f"file://{repo}", str(shallow)],
+        check=True,
+        capture_output=True,
+    )
+
+    result = _run_guard(shallow)
+
+    assert result.returncode == 1
+    assert "shallow clone" in result.stderr
+
+
+def test_a_full_clone_of_the_same_repository_passes(repo: Path, tmp_path: Path) -> None:
+    """The control for the check above, which would otherwise pass on a guard
+    that refuses every clone."""
+    full = tmp_path / "full"
+    subprocess.run(
+        ["git", "clone", "-q", "--no-local", f"file://{repo}", str(full)],
+        check=True,
+        capture_output=True,
+    )
+
+    result = _run_guard(full)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_repository_with_no_authored_refs_is_refused(tmp_path: Path) -> None:
+    """`git log` over no revisions audits nothing and exits zero — a clean
+    report over an empty set."""
+    bare = tmp_path / "bare"
+    subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True, capture_output=True)
+
+    result = _run_guard(bare)
+
+    assert result.returncode == 1
+    assert "empty ref set" in result.stderr
+
+
+def test_the_guard_selects_refs_positively(repo: Path) -> None:
+    """An exclusion list is where the real violation eventually hides: `--all`
+    minus today's synthetic namespace still admits tomorrow's."""
+    code = "\n".join(
+        line
+        for line in GUARD.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+
+    assert "refs/heads" in code
+    assert "refs/remotes/origin" in code
+    assert "refs/tags" in code
+    assert "--all" not in code
+    # `mapfile` is a bash 4 builtin and macOS ships 3.2, so a hook calling this
+    # would fail on the machine most commits are written on.
+    assert "mapfile" not in code
